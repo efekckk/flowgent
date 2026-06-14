@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: flowgent
+      POSTGRES_PASSWORD: flowgent
+      POSTGRES_DB: flowgent
+    ports:
+      - "5432:5432"
+    volumes:
+      - flowgent_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "flowgent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://flowgent:flowgent@postgres:5432/flowgent?sslmode=disable
+      SESSION_COOKIE_DOMAIN: localhost
+      SESSION_COOKIE_SECURE: "false"
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+
+volumes:
+  flowgent_pg:
