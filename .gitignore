@@ -1,0 +1,18 @@
+# Build artifacts
+/flowgent
+/dist
+*.test
+*.out
+
+# Local config
+.env
+Config/Secrets.*
+!Config/Secrets.*.example
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Test coverage
+coverage.out
