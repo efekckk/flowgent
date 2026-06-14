@@ -24,6 +24,7 @@ type Deps struct {
 	Users        *storage.UserRepo
 	Workspaces   *storage.WorkspaceRepo
 	Sessions     *storage.SessionRepo
+	Throttle     *auth.LoginThrottle
 	CookieDomain string
 	CookieSecure bool
 }
@@ -160,15 +161,26 @@ func (d *Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	u, err := d.Users.FindByEmail(ctx, email)
 	if err != nil {
-		// always 401, never 404, to avoid email enumeration
+		if !d.Throttle.AllowAndRecordFail(email) {
+			WriteError(w, http.StatusTooManyRequests, "too_many_attempts",
+				"Too many failed attempts. Try again in a few minutes.")
+			return
+		}
 		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is wrong.")
 		return
 	}
 	ok, err := auth.VerifyPassword(u.PasswordHash, req.Password)
 	if err != nil || !ok {
+		if !d.Throttle.AllowAndRecordFail(email) {
+			WriteError(w, http.StatusTooManyRequests, "too_many_attempts",
+				"Too many failed attempts. Try again in a few minutes.")
+			return
+		}
 		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is wrong.")
 		return
 	}
+	d.Throttle.Reset(email)
+
 	tok, err := d.issueSession(ctx, u.ID, r)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "session_issue_failed", "Could not start session.")

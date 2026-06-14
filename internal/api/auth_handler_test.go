@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/efekckk/flowgent/internal/api"
+	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/storage"
 	"github.com/efekckk/flowgent/internal/storage/storagetest"
 )
@@ -37,6 +39,7 @@ func newAPI(t *testing.T) (http.Handler, *pgxpool.Pool) {
 		Users:        storage.NewUserRepo(pool),
 		Workspaces:   storage.NewWorkspaceRepo(pool),
 		Sessions:     storage.NewSessionRepo(pool),
+		Throttle:     auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
 		CookieDomain: "localhost",
 		CookieSecure: false,
 	})
@@ -210,6 +213,32 @@ func TestMe_returns401WithoutSession(t *testing.T) {
 	srv.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestLogin_lockoutAfter5Failures(t *testing.T) {
+	srv, _ := newAPI(t)
+	body, _ := json.Marshal(map[string]string{"email": "lock@example.com", "password": "supersecret"})
+	r1 := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", bytes.NewReader(body))
+	r1.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(httptest.NewRecorder(), r1)
+
+	wrong, _ := json.Marshal(map[string]string{"email": "lock@example.com", "password": "wrong-one"})
+	for i := 0; i < 5; i++ {
+		r := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(wrong))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, r)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401, got %d", i+1, w.Code)
+		}
+	}
+	r6 := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(wrong))
+	r6.Header.Set("Content-Type", "application/json")
+	w6 := httptest.NewRecorder()
+	srv.ServeHTTP(w6, r6)
+	if w6.Code != http.StatusTooManyRequests {
+		t.Fatalf("6th attempt: expected 429, got %d body=%s", w6.Code, w6.Body.String())
 	}
 }
 
