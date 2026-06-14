@@ -191,3 +191,32 @@ func clientIP(r *http.Request) string {
 	}
 	return host
 }
+
+func (d *Deps) handleMe(w http.ResponseWriter, r *http.Request) {
+	u, ok := userFromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"user": userDTO{ID: u.ID, Email: u.Email},
+	})
+}
+
+func (d *Deps) handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err == nil {
+		_ = d.Sessions.Delete(r.Context(), auth.HashSessionToken(cookie.Value))
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Domain:   d.CookieDomain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   d.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -176,3 +176,69 @@ func TestLogin_unknownEmailIsAlso401(t *testing.T) {
 		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
 	}
 }
+
+func TestMe_returnsCurrentUserWhenSessionValid(t *testing.T) {
+	srv, _ := newAPI(t)
+	body, _ := json.Marshal(map[string]string{"email": "me@example.com", "password": "supersecret"})
+	r1 := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", bytes.NewReader(body))
+	r1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	srv.ServeHTTP(w1, r1)
+	cookies := w1.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatalf("no session cookie")
+	}
+
+	r2 := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	for _, c := range cookies {
+		r2.AddCookie(c)
+	}
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w2.Code, w2.Body.String())
+	}
+	if !bytes.Contains(w2.Body.Bytes(), []byte("me@example.com")) {
+		t.Errorf("body missing email: %s", w2.Body.String())
+	}
+}
+
+func TestMe_returns401WithoutSession(t *testing.T) {
+	srv, _ := newAPI(t)
+	req := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status: %d", rr.Code)
+	}
+}
+
+func TestLogout_invalidatesSession(t *testing.T) {
+	srv, _ := newAPI(t)
+	body, _ := json.Marshal(map[string]string{"email": "out@example.com", "password": "supersecret"})
+	r1 := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", bytes.NewReader(body))
+	r1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	srv.ServeHTTP(w1, r1)
+	cookies := w1.Result().Cookies()
+
+	r2 := httptest.NewRequest(http.MethodPost, "/v1/auth/logout", nil)
+	for _, c := range cookies {
+		r2.AddCookie(c)
+	}
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusNoContent {
+		t.Fatalf("logout status: %d", w2.Code)
+	}
+
+	r3 := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	for _, c := range cookies {
+		r3.AddCookie(c)
+	}
+	w3 := httptest.NewRecorder()
+	srv.ServeHTTP(w3, r3)
+	if w3.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 after logout, got %d", w3.Code)
+	}
+}
