@@ -128,3 +128,51 @@ func TestSignup_rejectsShortPassword(t *testing.T) {
 		t.Fatalf("expected 400, got %d", rr.Code)
 	}
 }
+
+func TestLogin_acceptsCorrectCredentials(t *testing.T) {
+	srv, _ := newAPI(t)
+	body, _ := json.Marshal(map[string]string{"email": "login@example.com", "password": "supersecret"})
+	r1 := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", bytes.NewReader(body))
+	r1.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(httptest.NewRecorder(), r1)
+
+	r2 := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(body))
+	r2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("status: %d body=%s", w2.Code, w2.Body.String())
+	}
+	if len(w2.Result().Cookies()) == 0 {
+		t.Fatalf("expected session cookie")
+	}
+}
+
+func TestLogin_rejectsWrongPassword(t *testing.T) {
+	srv, _ := newAPI(t)
+	signupBody, _ := json.Marshal(map[string]string{"email": "wrong@example.com", "password": "supersecret"})
+	r1 := httptest.NewRequest(http.MethodPost, "/v1/auth/signup", bytes.NewReader(signupBody))
+	r1.Header.Set("Content-Type", "application/json")
+	srv.ServeHTTP(httptest.NewRecorder(), r1)
+
+	loginBody, _ := json.Marshal(map[string]string{"email": "wrong@example.com", "password": "notright"})
+	r2 := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(loginBody))
+	r2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, r2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestLogin_unknownEmailIsAlso401(t *testing.T) {
+	srv, _ := newAPI(t)
+	body, _ := json.Marshal(map[string]string{"email": "nobody@example.com", "password": "supersecret"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status: %d body=%s", rr.Code, rr.Body.String())
+	}
+}

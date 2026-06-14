@@ -140,6 +140,44 @@ func looksLikeEmail(s string) bool {
 	return dot > 0 && dot < len(s[at+1:])-1
 }
 
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	User userDTO `json:"user"`
+}
+
+func (d *Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, "invalid_json", "Request body must be JSON.")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	ctx := r.Context()
+	u, err := d.Users.FindByEmail(ctx, email)
+	if err != nil {
+		// always 401, never 404, to avoid email enumeration
+		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is wrong.")
+		return
+	}
+	ok, err := auth.VerifyPassword(u.PasswordHash, req.Password)
+	if err != nil || !ok {
+		WriteError(w, http.StatusUnauthorized, "invalid_credentials", "Email or password is wrong.")
+		return
+	}
+	tok, err := d.issueSession(ctx, u.ID, r)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "session_issue_failed", "Could not start session.")
+		return
+	}
+	d.setSessionCookie(w, tok)
+	WriteJSON(w, http.StatusOK, loginResponse{User: userDTO{ID: u.ID, Email: u.Email}})
+}
+
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		if i := strings.IndexByte(fwd, ','); i > 0 {

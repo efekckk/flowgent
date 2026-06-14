@@ -13,6 +13,7 @@ func NewServer(d Deps) http.Handler {
 	})
 	r.Route("/v1/auth", func(sub chi.Router) {
 		sub.Post("/signup", d.handleSignup)
+		sub.Post("/login", d.handleLogin)
 	})
 	return r
 }
