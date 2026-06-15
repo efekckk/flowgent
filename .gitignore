@@ -16,3 +16,7 @@ Config/Secrets.*
 
 # Test coverage
 coverage.out
+
+# Web build artifacts
+web/dist
+web/node_modules
