@@ -1,0 +1,17 @@
+{
+  "slug": "core.set",
+  "version": "1.0.0",
+  "display_name": "Set",
+  "category": "transform",
+  "description": "Sets/overrides arbitrary key-value pairs in the workflow data. The `values` input becomes the node's output verbatim, useful for reshaping data before downstream nodes.",
+  "inputs": {
+    "type": "object",
+    "required": ["values"],
+    "properties": {
+      "values": { "type": "object", "description": "Arbitrary keys/values to emit as this node's output." }
+    }
+  },
+  "outputs": {
+    "type": "object"
+  }
+}
