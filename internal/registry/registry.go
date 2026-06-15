@@ -80,11 +80,13 @@ func (r *Registry) LoadFromDir(dir string) error {
 func (r *Registry) Get(slug string) (Executor, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	e, ok := r.entries[slug]
-	if !ok {
-		return nil, false
+	if e, ok := r.entries[slug]; ok {
+		return e.Exec, true
 	}
-	return e.Exec, true
+	// Fall back to executors registered without a manifest (e.g. in tests or
+	// at startup before LoadFromDir is called).
+	exec, ok := r.execs[slug]
+	return exec, ok
 }
 
 func (r *Registry) Manifest(slug string) (Manifest, bool) {
