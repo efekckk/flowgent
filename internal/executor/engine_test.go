@@ -45,11 +45,12 @@ func TestEngine_singleNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if state.Status != "succeeded" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
 	}
-	if state.NodeOutputs["n1"]["hello"] != "world" {
-		t.Errorf("output: %+v", state.NodeOutputs["n1"])
+	if state.LatestOutput("n1")["hello"] != "world" {
+		t.Errorf("output: %+v", state.LatestOutput("n1"))
 	}
 }
 
@@ -72,13 +73,14 @@ func TestEngine_linearChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if state.Status != "succeeded" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
 	}
-	if _, ok := state.NodeOutputs["a"]; !ok {
+	if state.LatestOutput("a") == nil {
 		t.Errorf("a output missing")
 	}
-	if _, ok := state.NodeOutputs["b"]; !ok {
+	if state.LatestOutput("b") == nil {
 		t.Errorf("b output missing")
 	}
 }
@@ -107,11 +109,11 @@ func TestEngine_ifBranch_onlyTruePathRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if state.NodeStatus["yes"] != "succeeded" {
-		t.Errorf("yes status: %s", state.NodeStatus["yes"])
+	if state.Status("yes") != "succeeded" {
+		t.Errorf("yes status: %s", state.Status("yes"))
 	}
-	if state.NodeStatus["no"] != "skipped" {
-		t.Errorf("no status (want skipped): %s", state.NodeStatus["no"])
+	if state.Status("no") != "skipped" {
+		t.Errorf("no status (want skipped): %s", state.Status("no"))
 	}
 }
 
@@ -129,8 +131,9 @@ func TestEngine_nodeFailureMarksRunFailed(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	if state.Status != "failed" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "failed" {
+		t.Errorf("status: %s", runStatus)
 	}
 }
 
@@ -153,8 +156,9 @@ func TestEngine_retryOnRateLimitedThenSucceed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if state.Status != "succeeded" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
 	}
 	if len(rec.calls) != 3 {
 		t.Errorf("attempts: %d (want 3)", len(rec.calls))
@@ -176,8 +180,9 @@ func TestEngine_noRetryOnAuthFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	if state.Status != "failed" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "failed" {
+		t.Errorf("status: %s", runStatus)
 	}
 	if len(rec.calls) != 1 {
 		t.Errorf("attempts: %d (want 1)", len(rec.calls))

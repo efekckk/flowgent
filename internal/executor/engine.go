@@ -14,15 +14,6 @@ type RunOptions struct {
 	TriggerPayload map[string]any
 }
 
-type RunState struct {
-	Status      string
-	Error       string
-	NodeStatus  map[string]string
-	NodeOutputs map[string]map[string]any
-	NodeInputs  map[string]map[string]any
-	NodePort    map[string]string
-}
-
 type Engine struct {
 	registry    *registry.Registry
 	maxAttempts int
@@ -59,22 +50,15 @@ func defaultBackoff(attempt int) time.Duration {
 	return base
 }
 
-func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunState, error) {
-	state := RunState{
-		Status:      "running",
-		NodeStatus:  make(map[string]string, len(wf.Nodes)),
-		NodeOutputs: make(map[string]map[string]any, len(wf.Nodes)),
-		NodeInputs:  make(map[string]map[string]any, len(wf.Nodes)),
-		NodePort:    make(map[string]string, len(wf.Nodes)),
-	}
+func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunState, error) {
+	state := NewRunState(len(wf.Nodes))
 	for _, n := range wf.Nodes {
-		state.NodeStatus[n.ID] = "pending"
+		state.SetStatus(n.ID, "pending")
 	}
 
 	pending := wf.EntryNodes()
 	if len(pending) == 0 && len(wf.Nodes) > 0 {
-		state.Status = "failed"
-		state.Error = "no entry nodes (cycle?)"
+		state.SetRunStatus("failed", "no entry nodes (cycle?)")
 		return state, fmt.Errorf("executor: no entry nodes")
 	}
 
@@ -82,67 +66,15 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunSta
 	for len(pending) > 0 {
 		node := pending[0]
 		pending = pending[1:]
-		if visited[node.ID] || state.NodeStatus[node.ID] != "pending" {
+		if visited[node.ID] || state.Status(node.ID) != "pending" {
 			continue
 		}
 		visited[node.ID] = true
 
-		exec, ok := e.registry.Get(node.Tool)
-		if !ok {
-			state.NodeStatus[node.ID] = "failed"
-			state.Status = "failed"
-			state.Error = fmt.Sprintf("unknown tool %q", node.Tool)
-			return state, fmt.Errorf("executor: unknown tool %q", node.Tool)
-		}
-
-		state.NodeStatus[node.ID] = "running"
-
-		evalCtx := expression.EvalContext{
-			Trigger: opts.TriggerPayload,
-			Nodes:   state.NodeOutputs,
-		}
-		resolved, err := ResolveInputs(node.Params, node.ID, evalCtx, &state)
+		port, err := e.executeNode(ctx, &node, state, opts)
 		if err != nil {
-			state.NodeStatus[node.ID] = "failed"
-			state.Status = "failed"
-			state.Error = err.Error()
 			return state, err
 		}
-		state.NodeInputs[node.ID] = resolved
-
-		var res registry.ExecuteResult
-		var execErr error
-		attempts := 0
-		for attempts < e.maxAttempts {
-			attempts++
-			res, execErr = exec.Execute(ctx, resolved)
-			if execErr == nil {
-				break
-			}
-			if !IsRetryable(execErr) || attempts >= e.maxAttempts {
-				break
-			}
-			d := e.backoff(attempts)
-			if d > 0 {
-				select {
-				case <-time.After(d):
-				case <-ctx.Done():
-					execErr = ctx.Err()
-				}
-				if ctx.Err() != nil {
-					break
-				}
-			}
-		}
-		if execErr != nil {
-			state.NodeStatus[node.ID] = "failed"
-			state.Status = "failed"
-			state.Error = execErr.Error()
-			return state, execErr
-		}
-		state.NodeStatus[node.ID] = "succeeded"
-		state.NodeOutputs[node.ID] = res.Output
-		state.NodePort[node.ID] = res.Port
 
 		for _, edge := range wf.Edges {
 			if edge.From != node.ID {
@@ -152,14 +84,68 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunSta
 			if !ok {
 				continue
 			}
-			if edge.FromPort == res.Port {
+			if edge.FromPort == port {
 				pending = append(pending, next)
 			} else {
-				state.NodeStatus[next.ID] = "skipped"
+				state.SetStatus(next.ID, "skipped")
 			}
 		}
 	}
 
-	state.Status = "succeeded"
+	state.SetRunStatus("succeeded", "")
 	return state, nil
+}
+
+func (e *Engine) executeNode(ctx context.Context, node *Node, state *RunState, opts RunOptions) (string, error) {
+	exec, ok := e.registry.Get(node.Tool)
+	if !ok {
+		state.SetStatus(node.ID, "failed")
+		state.SetRunStatus("failed", fmt.Sprintf("unknown tool %q", node.Tool))
+		return "", fmt.Errorf("executor: unknown tool %q", node.Tool)
+	}
+
+	state.SetStatus(node.ID, "running")
+	evalCtx := expression.EvalContext{
+		Trigger: opts.TriggerPayload,
+		Nodes:   state.LatestOutputsMap(),
+	}
+	resolved, err := ResolveInputs(node.Params, node.ID, evalCtx, state)
+	if err != nil {
+		state.SetStatus(node.ID, "failed")
+		state.SetRunStatus("failed", err.Error())
+		return "", err
+	}
+	state.SetInput(node.ID, resolved)
+
+	var res registry.ExecuteResult
+	var execErr error
+	attempts := 0
+	for attempts < e.maxAttempts {
+		attempts++
+		res, execErr = exec.Execute(ctx, resolved)
+		if execErr == nil {
+			break
+		}
+		if !IsRetryable(execErr) || attempts >= e.maxAttempts {
+			break
+		}
+		d := e.backoff(attempts)
+		if d > 0 {
+			select {
+			case <-time.After(d):
+			case <-ctx.Done():
+				execErr = ctx.Err()
+			}
+			if ctx.Err() != nil {
+				break
+			}
+		}
+	}
+	if execErr != nil {
+		state.RecordFailure(node.ID, 0, attempts, execErr.Error())
+		state.SetRunStatus("failed", execErr.Error())
+		return "", execErr
+	}
+	state.RecordOutput(node.ID, 0, res.Output, res.Port)
+	return res.Port, nil
 }

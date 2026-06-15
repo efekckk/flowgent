@@ -8,8 +8,8 @@ import (
 )
 
 func TestResolveInputs_literal(t *testing.T) {
-	state := newRunState()
-	got, err := ResolveInputs(map[string]any{"k": "v"}, "n1", expression.EvalContext{}, &state)
+	state := NewRunState(0)
+	got, err := ResolveInputs(map[string]any{"k": "v"}, "n1", expression.EvalContext{}, state)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -19,9 +19,9 @@ func TestResolveInputs_literal(t *testing.T) {
 }
 
 func TestResolveInputs_triggerReference(t *testing.T) {
-	state := newRunState()
+	state := NewRunState(0)
 	ctx := expression.EvalContext{Trigger: map[string]any{"name": "Alice"}}
-	got, err := ResolveInputs(map[string]any{"greeting": "hello {{ $trigger.name }}"}, "n1", ctx, &state)
+	got, err := ResolveInputs(map[string]any{"greeting": "hello {{ $trigger.name }}"}, "n1", ctx, state)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -31,10 +31,10 @@ func TestResolveInputs_triggerReference(t *testing.T) {
 }
 
 func TestResolveInputs_nodeReference(t *testing.T) {
-	state := newRunState()
-	state.NodeOutputs["n0"] = map[string]any{"value": 42}
-	ctx := expression.EvalContext{Nodes: state.NodeOutputs}
-	got, err := ResolveInputs(map[string]any{"x": "{{ $nodes.n0.value }}"}, "n1", ctx, &state)
+	state := NewRunState(0)
+	state.RecordOutput("n0", 0, map[string]any{"value": 42}, "main")
+	ctx := expression.EvalContext{Nodes: state.LatestOutputsMap()}
+	got, err := ResolveInputs(map[string]any{"x": "{{ $nodes.n0.value }}"}, "n1", ctx, state)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -44,14 +44,14 @@ func TestResolveInputs_nodeReference(t *testing.T) {
 }
 
 func TestResolveInputs_nestedMap(t *testing.T) {
-	state := newRunState()
+	state := NewRunState(0)
 	ctx := expression.EvalContext{Trigger: map[string]any{"id": 7}}
 	got, err := ResolveInputs(map[string]any{
 		"obj": map[string]any{
 			"id":    "{{ $trigger.id }}",
 			"label": "static",
 		},
-	}, "n1", ctx, &state)
+	}, "n1", ctx, state)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -64,25 +64,16 @@ func TestResolveInputs_nestedMap(t *testing.T) {
 }
 
 func TestResolveInputs_arrayOfExpressions(t *testing.T) {
-	state := newRunState()
+	state := NewRunState(0)
 	ctx := expression.EvalContext{Trigger: map[string]any{"a": 1, "b": 2}}
 	got, err := ResolveInputs(map[string]any{
 		"items": []any{"{{ $trigger.a }}", "{{ $trigger.b }}", "literal"},
-	}, "n1", ctx, &state)
+	}, "n1", ctx, state)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	items := got["items"].([]any)
 	if items[0] != 1 || items[1] != 2 || items[2] != "literal" {
 		t.Errorf("got %+v", items)
-	}
-}
-
-func newRunState() RunState {
-	return RunState{
-		NodeStatus:  map[string]string{},
-		NodeOutputs: map[string]map[string]any{},
-		NodeInputs:  map[string]map[string]any{},
-		NodePort:    map[string]string{},
 	}
 }

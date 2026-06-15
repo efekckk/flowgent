@@ -76,16 +76,17 @@ func TestEngine_endToEnd_setWaitIfHttp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if state.Status != "succeeded" {
-		t.Errorf("status: %s", state.Status)
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
 	}
-	if state.NodeStatus["call"] != "succeeded" {
-		t.Errorf("call should have run: %+v", state.NodeStatus)
+	if state.Status("call") != "succeeded" {
+		t.Errorf("call should have run: %+v", state.Statuses())
 	}
-	if state.NodeStatus["skipped"] != "skipped" {
-		t.Errorf("skipped should be skipped: %+v", state.NodeStatus)
+	if state.Status("skipped") != "skipped" {
+		t.Errorf("skipped should be skipped: %+v", state.Statuses())
 	}
-	if state.NodeOutputs["call"]["status"] != 200 {
-		t.Errorf("http status: %+v", state.NodeOutputs["call"])
+	if state.LatestOutput("call")["status"] != 200 {
+		t.Errorf("http status: %+v", state.LatestOutput("call"))
 	}
 }

@@ -152,33 +152,48 @@ func (d *Deps) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	})
 	finishedAt := time.Now().UTC()
 	persistNodeRuns(r.Context(), d.Runs, runID, &def, state)
-	errText := ""
-	if runErr != nil {
+	runStatus, runErrMsg := state.RunStatus()
+	errText := runErrMsg
+	if runErr != nil && errText == "" {
 		errText = runErr.Error()
 	}
-	_ = d.Runs.UpdateRunStatus(r.Context(), runID, state.Status, errText, &now, &finishedAt)
+	_ = d.Runs.UpdateRunStatus(r.Context(), runID, runStatus, errText, &now, &finishedAt)
 
-	resp := runResponse{RunID: runID, Status: state.Status, Error: errText}
+	resp := runResponse{RunID: runID, Status: runStatus, Error: errText}
 	WriteJSON(w, http.StatusOK, resp)
 }
 
-func persistNodeRuns(ctx context.Context, repo *storage.WorkflowRunRepo, runID string, wf *executor.Workflow, state executor.RunState) {
+func persistNodeRuns(ctx context.Context, repo *storage.WorkflowRunRepo, runID string, wf *executor.Workflow, state *executor.RunState) {
 	for _, node := range wf.Nodes {
-		status := state.NodeStatus[node.ID]
-		if status == "" {
-			status = "skipped"
+		records := state.History(node.ID)
+		if len(records) == 0 {
+			status := state.Status(node.ID)
+			if status == "" {
+				status = "skipped"
+			}
+			_ = repo.InsertNodeRun(ctx, storage.NodeRun{
+				ID:            idgen.NewNodeRun(),
+				WorkflowRunID: runID,
+				NodeID:        node.ID,
+				Iteration:     0,
+				Status:        status,
+				Attempts:      0,
+			})
+			continue
 		}
-		inputBytes, _ := json.Marshal(state.NodeInputs[node.ID])
-		outputBytes, _ := json.Marshal(state.NodeOutputs[node.ID])
-		_ = repo.InsertNodeRun(ctx, storage.NodeRun{
-			ID:            idgen.NewNodeRun(),
-			WorkflowRunID: runID,
-			NodeID:        node.ID,
-			Iteration:     0,
-			Status:        status,
-			Input:         inputBytes,
-			Output:        outputBytes,
-			Attempts:      1,
-		})
+		inputBytes, _ := json.Marshal(state.Input(node.ID))
+		for _, rec := range records {
+			outputBytes, _ := json.Marshal(rec.Output)
+			_ = repo.InsertNodeRun(ctx, storage.NodeRun{
+				ID:            idgen.NewNodeRun(),
+				WorkflowRunID: runID,
+				NodeID:        node.ID,
+				Iteration:     rec.Iteration,
+				Status:        rec.Status,
+				Input:         inputBytes,
+				Output:        outputBytes,
+				Attempts:      rec.Attempts,
+			})
+		}
 	}
 }
