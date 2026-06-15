@@ -2,32 +2,32 @@
 
 AI-first workflow automation. You describe what you want in plain language, AI builds the workflow.
 
-> Status: pre-alpha. **AI Agent (M4) complete.** See `docs/plans/` for the next milestone.
+> Status: pre-alpha. **Web UI (M5) complete.** See `docs/plans/` for the next milestone.
 
 ## Run locally
 
 ```bash
 docker compose up -d postgres
+npm --prefix web install
+npm --prefix web run build
+cp -r web/dist/. internal/webfs/dist/
+
 export DATABASE_URL="postgres://flowgent:flowgent@localhost:5432/flowgent?sslmode=disable"
 export FLOWGENT_OPENAI_KEY="sk-..."        # or FLOWGENT_ANTHROPIC_KEY
 export FLOWGENT_DEFAULT_PROVIDER="openai"  # or "anthropic"
 go run ./cmd/flowgent
 ```
 
-Health check:
-
-```
-curl localhost:8080/health
-# {"status":"ok"}
-```
+Open `http://localhost:8080` in a browser. Sign up, click **+ New workflow**, then chat with the assistant ("Build me a workflow that pings example.com every minute and emails me on failure"). The proposal lands on the canvas; click **Run now** to execute.
 
 ## Test
 
 ```bash
 go test ./... -race
+npm --prefix web test
 ```
 
-Integration tests use [dockertest](https://github.com/ory/dockertest); they auto-skip on machines without Docker.
+Backend integration tests use [dockertest](https://github.com/ory/dockertest); they auto-skip on machines without Docker.
 
 ## Current API surface
 
@@ -43,31 +43,19 @@ Integration tests use [dockertest](https://github.com/ory/dockertest); they auto
 | POST   | /v1/workflows/{id}/run        | Execute workflow manually                |
 | POST   | /v1/workflows/{id}/chat       | Chat with AI agent; SSE stream of events |
 
+Everything else under `/` is served by the React SPA.
+
 ## Available tools
 
-| Slug          | Category   | What it does |
-|---------------|------------|--------------|
-| http.request  | core       | HTTP GET/POST/etc. with classified retry errors |
-| core.if       | control    | Compares two values, routes to true/false port  |
-| core.set      | transform  | Emits its `values` map as the node output       |
-| core.wait     | control    | Sleeps N ms, honours ctx cancellation           |
-| core.merge    | control    | Combines upstream outputs (append/merge/first)  |
-| core.loop     | control    | Iterates over an array, runs body per item      |
-| core.code     | transform  | Sandboxed JS snippet (goja, CPU+mem-limited)    |
-
-## AI Agent
-
-Send a chat message to `POST /v1/workflows/:id/chat` with `{"message": "...", "model": "..."}`. The server streams Server-Sent Events back:
-
-| Event type   | Meaning                                                       |
-|--------------|---------------------------------------------------------------|
-| `text`       | Plain assistant text                                           |
-| `proposal`   | A new workflow JSON proposal (payload is the workflow body)    |
-| `patch`      | JSON-Patch operations to modify the existing workflow          |
-| `error`      | Agent or provider failure                                      |
-| `done`       | End of stream                                                  |
-
-The agent validates each proposal (tool slugs known, edge targets valid, no cycles) and re-prompts the model up to 3 times if validation fails. Supported providers: **OpenAI** (`FLOWGENT_OPENAI_KEY`) and **Anthropic** (`FLOWGENT_ANTHROPIC_KEY`). Gemini and Ollama are queued for v1.x.
+| Slug          | Category       | What it does |
+|---------------|----------------|--------------|
+| http.request  | core           | HTTP GET/POST/etc. with classified retry errors |
+| core.if       | control        | Compares two values, routes to true/false port  |
+| core.set      | transform/data | Emits its `values` map as the node output       |
+| core.wait     | control        | Sleeps N ms, honours ctx cancellation           |
+| core.merge    | control        | Combines upstream outputs (append/merge/first)  |
+| core.loop     | control        | Iterates over an array, runs body per item      |
+| core.code     | transform/code | Sandboxed JS snippet (goja, CPU+mem-limited)    |
 
 ## Engine capabilities
 
@@ -75,11 +63,15 @@ The agent validates each proposal (tool slugs known, edge targets valid, no cycl
 - Loop coordination: `core.loop` with explicit body node list
 - Merge synchronisation: `core.merge` waits for all upstream branches
 - Error edge routing: any node failure with an `error` outgoing edge is routed instead of failing the run
-- Retry policy: classified errors (`rate_limited`, `transient_5xx`) trigger exponential backoff up to N attempts; `auth_failed` and `validation` short-circuit
+- Retry policy: classified errors (`rate_limited`, `transient_5xx`) trigger exponential backoff; `auth_failed` and `validation` short-circuit
+
+## AI agent
+
+Send a chat message via the UI or `POST /v1/workflows/:id/chat`. The agent validates each proposal (tool slugs known, edge targets valid, no cycles) and re-prompts the model up to 3 times if validation fails. Supported providers: **OpenAI** (`FLOWGENT_OPENAI_KEY`) and **Anthropic** (`FLOWGENT_ANTHROPIC_KEY`). Gemini and Ollama are queued for v1.x.
 
 ## Expressions
 
-Inside node params, use `{{ $trigger.field }}`, `{{ $nodes.<id>.<field> }}`, `{{ $now }}`, or any expr-lang expression. A param whose entire value is a single `{{ ... }}` keeps its native type (int / map / etc.); embedded expressions are stringified into the surrounding template. Inside a loop body, `$nodes.<loop_id>.current` and `$nodes.<loop_id>.index` carry the current iteration's value and index.
+Inside node params: `{{ $trigger.field }}`, `{{ $nodes.<id>.<field> }}`, `{{ $now }}`, or any expr-lang expression. A param whose entire value is a single `{{ ... }}` keeps its native type. Inside a loop body, `$nodes.<loop_id>.current` and `$nodes.<loop_id>.index` carry the iteration value and index.
 
 ## Roadmap
 
@@ -89,7 +81,7 @@ See `docs/specs/2026-06-12-flowgent-design.md` for full design. Milestone status
 - [x] M2 Engine core — tool registry, expression engine, first primitive nodes
 - [x] M3 DAG + paralel — loop, merge, code sandbox, parallel branches
 - [x] M4 AI agent — provider abstraction, workflow generation loop
-- [ ] M5 UI shell — React + ReactFlow + chat panel
+- [x] M5 UI shell — React + ReactFlow + chat panel
 - [ ] M6 Credentials + LLM integration
 - [ ] M7 Integrations wave 1 — Slack, Telegram, Email, Postgres, Sheets
 - [ ] M8 Triggers + run viewer — cron, webhook, live log
