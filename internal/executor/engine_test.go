@@ -261,3 +261,51 @@ func TestEngine_parallelBranchesExecuteSimultaneously(t *testing.T) {
 		t.Errorf("status: %s", runStatus)
 	}
 }
+
+func TestEngine_errorPortRoutesToCleanup(t *testing.T) {
+	reg := registry.New()
+	reg.Register("bad.tool", &recordingExec{failNx: 99, err: executor.ErrAuthFailed})
+	reg.Register("cleanup.tool", &recordingExec{out: map[string]any{"cleaned": true}})
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "fail", Tool: "bad.tool", Params: map[string]any{}},
+			{ID: "cleanup", Tool: "cleanup.tool", Params: map[string]any{}},
+		},
+		Edges: []executor.Edge{
+			{From: "fail", FromPort: "error", To: "cleanup", ToPort: "main"},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxAttempts(1))
+	state, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err != nil {
+		t.Fatalf("run should not fail when error edge is present: %v", err)
+	}
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
+	}
+	if state.Status("cleanup") != "succeeded" {
+		t.Errorf("cleanup status: %s", state.Status("cleanup"))
+	}
+}
+
+func TestEngine_noErrorEdgeStillFailsRun(t *testing.T) {
+	reg := registry.New()
+	reg.Register("bad.tool", &recordingExec{failNx: 99, err: executor.ErrAuthFailed})
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "fail", Tool: "bad.tool", Params: map[string]any{}},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxAttempts(1))
+	state, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	runStatus, _ := state.RunStatus()
+	if runStatus != "failed" {
+		t.Errorf("status: %s", runStatus)
+	}
+}

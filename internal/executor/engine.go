@@ -210,6 +210,18 @@ func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, stat
 		}
 	}
 	if execErr != nil {
+		hasErrorEdge := false
+		for _, edge := range wf.Edges {
+			if edge.From == node.ID && edge.FromPort == "error" {
+				hasErrorEdge = true
+				break
+			}
+		}
+		if hasErrorEdge {
+			state.RecordFailure(node.ID, 0, attempts, execErr.Error())
+			state.RecordOutput(node.ID, 0, map[string]any{"error": execErr.Error()}, "error")
+			return "error", nil
+		}
 		state.RecordFailure(node.ID, 0, attempts, execErr.Error())
 		state.SetRunStatus("failed", execErr.Error())
 		return "", execErr
