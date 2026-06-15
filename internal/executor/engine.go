@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/efekckk/flowgent/internal/expression"
 	"github.com/efekckk/flowgent/internal/registry"
 )
 
@@ -66,9 +67,21 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunSta
 		}
 
 		state.NodeStatus[node.ID] = "running"
-		state.NodeInputs[node.ID] = node.Params
 
-		res, err := exec.Execute(ctx, node.Params)
+		evalCtx := expression.EvalContext{
+			Trigger: opts.TriggerPayload,
+			Nodes:   state.NodeOutputs,
+		}
+		resolved, err := ResolveInputs(node.Params, node.ID, evalCtx, &state)
+		if err != nil {
+			state.NodeStatus[node.ID] = "failed"
+			state.Status = "failed"
+			state.Error = err.Error()
+			return state, err
+		}
+		state.NodeInputs[node.ID] = resolved
+
+		res, err := exec.Execute(ctx, resolved)
 		if err != nil {
 			state.NodeStatus[node.ID] = "failed"
 			state.Status = "failed"
