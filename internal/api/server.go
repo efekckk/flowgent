@@ -19,6 +19,9 @@ func NewServer(d Deps) http.Handler {
 	r.Route("/v1", func(sub chi.Router) {
 		sub.Use(d.SessionMiddleware)
 		sub.Get("/me", d.handleMe)
+		sub.Post("/workflows", d.handleCreateWorkflow)
+		sub.Get("/workflows/{id}", d.handleGetWorkflow)
+		sub.Post("/workflows/{id}/run", d.handleRunWorkflow)
 	})
 	return r
 }

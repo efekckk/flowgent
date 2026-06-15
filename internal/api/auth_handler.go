@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/efekckk/flowgent/internal/auth"
+	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/idgen"
 	"github.com/efekckk/flowgent/internal/storage"
 )
@@ -24,6 +25,9 @@ type Deps struct {
 	Users        *storage.UserRepo
 	Workspaces   *storage.WorkspaceRepo
 	Sessions     *storage.SessionRepo
+	Workflows    *storage.WorkflowRepo
+	Runs         *storage.WorkflowRunRepo
+	Engine       *executor.Engine
 	Throttle     *auth.LoginThrottle
 	CookieDomain string
 	CookieSecure bool
