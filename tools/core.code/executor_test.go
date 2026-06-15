@@ -92,3 +92,43 @@ func TestExecute_snippetSizeLimitEnforced(t *testing.T) {
 		t.Fatalf("expected snippet-size error")
 	}
 }
+
+func TestExecute_requireIsBlocked(t *testing.T) {
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"code": `return require("fs");`,
+	})
+	if err == nil {
+		t.Fatalf("expected error: require should not exist")
+	}
+}
+
+func TestExecute_processIsNotInjected(t *testing.T) {
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"code": `return process.env.HOME;`,
+	})
+	if err == nil {
+		t.Fatalf("expected error: process should not exist")
+	}
+}
+
+func TestExecute_fetchIsBlocked(t *testing.T) {
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"code": `return fetch("https://evil.example");`,
+	})
+	if err == nil {
+		t.Fatalf("expected error: fetch should not exist")
+	}
+}
+
+func TestExecute_setTimeoutIsBlocked(t *testing.T) {
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"code": `setTimeout(function(){}, 100); return 1;`,
+	})
+	if err == nil {
+		t.Fatalf("expected error: setTimeout should not exist")
+	}
+}
