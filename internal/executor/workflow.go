@@ -37,16 +37,37 @@ func (w *Workflow) NodeByID(id string) (Node, bool) {
 	return Node{}, false
 }
 
+// LoopBodyIDs returns the set of node IDs that are declared as body nodes
+// inside any core.loop node. These nodes must not be treated as entry nodes
+// by the engine — they are driven exclusively by runLoop.
+func (w *Workflow) LoopBodyIDs() map[string]bool {
+	out := make(map[string]bool)
+	for _, n := range w.Nodes {
+		if n.Tool != "core.loop" {
+			continue
+		}
+		bodyRaw, _ := n.Params["body"].([]any)
+		for _, b := range bodyRaw {
+			if s, ok := b.(string); ok {
+				out[s] = true
+			}
+		}
+	}
+	return out
+}
+
 // EntryNodes returns nodes with no incoming edges — the engine seeds the
-// run from this set.
+// run from this set. Nodes that are body nodes of a core.loop are excluded
+// because they are driven exclusively by the loop coordinator.
 func (w *Workflow) EntryNodes() []Node {
 	hasIncoming := make(map[string]bool, len(w.Nodes))
 	for _, e := range w.Edges {
 		hasIncoming[e.To] = true
 	}
+	bodyNodes := w.LoopBodyIDs()
 	var out []Node
 	for _, n := range w.Nodes {
-		if !hasIncoming[n.ID] {
+		if !hasIncoming[n.ID] && !bodyNodes[n.ID] {
 			out = append(out, n)
 		}
 	}

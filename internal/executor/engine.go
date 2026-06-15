@@ -112,7 +112,13 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 			go func() {
 				defer wg.Done()
 				defer func() { <-sem }()
-				port, err := e.executeNode(ctx, wf, node, state, opts)
+				var port string
+				var err error
+				if IsLoopNode(node) {
+					port, err = e.runLoop(ctx, wf, node, state, opts)
+				} else {
+					port, err = e.executeNode(ctx, wf, node, state, opts)
+				}
 				results[i] = result{node: node, port: port, err: err}
 			}()
 		}
