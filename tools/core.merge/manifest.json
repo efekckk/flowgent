@@ -1,0 +1,16 @@
+{
+  "slug": "core.merge",
+  "version": "1.0.0",
+  "display_name": "Merge",
+  "category": "control",
+  "description": "Combines outputs from upstream nodes. Mode `append` concatenates them into an array, `merge_objects` shallow-merges them into one object (later keys win), `first_to_complete` returns the first non-nil upstream.",
+  "inputs": {
+    "type": "object",
+    "required": ["mode", "inputs"],
+    "properties": {
+      "mode":   { "type": "string", "enum": ["append", "merge_objects", "first_to_complete"] },
+      "inputs": { "type": "array", "description": "Array of upstream outputs to merge." }
+    }
+  },
+  "outputs": { "type": "object" }
+}
