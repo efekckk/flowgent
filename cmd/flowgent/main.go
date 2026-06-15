@@ -14,7 +14,10 @@ import (
 	"github.com/efekckk/flowgent/internal/registry"
 	"github.com/efekckk/flowgent/internal/storage"
 
+	corecode "github.com/efekckk/flowgent/tools/core.code"
 	coreif "github.com/efekckk/flowgent/tools/core.if"
+	coreloop "github.com/efekckk/flowgent/tools/core.loop"
+	coremerge "github.com/efekckk/flowgent/tools/core.merge"
 	coreset "github.com/efekckk/flowgent/tools/core.set"
 	corewait "github.com/efekckk/flowgent/tools/core.wait"
 	httprequest "github.com/efekckk/flowgent/tools/http.request"
@@ -47,6 +50,9 @@ func main() {
 	reg.Register("core.set", coreset.New())
 	reg.Register("core.if", coreif.New())
 	reg.Register("http.request", httprequest.New())
+	reg.Register("core.merge", coremerge.New())
+	reg.Register("core.loop", coreloop.New())
+	reg.Register("core.code", corecode.New())
 	if err := reg.LoadFromDir(envOr("FLOWGENT_TOOLS_DIR", "./tools")); err != nil {
 		logger.Error("tool registry", "err", err)
 		os.Exit(1)
