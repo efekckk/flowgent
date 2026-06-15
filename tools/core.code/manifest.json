@@ -1,0 +1,15 @@
+{
+  "slug": "core.code",
+  "version": "1.0.0",
+  "display_name": "Code (JS)",
+  "category": "transform",
+  "description": "Runs a small JavaScript snippet against the node's resolved input. The snippet body has access to `input`, `prev`, `$trigger`, `$now`, `$env`. Returns the snippet's result as the node output. Sandboxed: no file, network, or OS access; bounded by CPU and memory limits.",
+  "inputs": {
+    "type": "object",
+    "required": ["code"],
+    "properties": {
+      "code": { "type": "string", "description": "JS function body. Use `return ...` to emit output." }
+    }
+  },
+  "outputs": { "type": "object" }
+}
