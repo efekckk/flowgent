@@ -1,0 +1,32 @@
+{
+  "slug": "http.request",
+  "version": "1.0.0",
+  "display_name": "HTTP Request",
+  "category": "core",
+  "description": "Performs an HTTP request against an arbitrary URL. The response body is parsed as JSON when the Content-Type is JSON; otherwise it is returned as a string. Non-2xx statuses raise classified errors (rate_limited / transient_5xx / auth_failed / validation) so the engine can apply the retry policy.",
+  "inputs": {
+    "type": "object",
+    "required": ["method", "url"],
+    "properties": {
+      "method":  { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+      "url":     { "type": "string" },
+      "headers": { "type": "object" },
+      "body":    { "description": "Request body. Sent as JSON when method allows a body." },
+      "timeout_ms": { "type": "integer", "default": 10000 }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "status": { "type": "integer" },
+      "headers": { "type": "object" },
+      "body":   { "description": "Parsed JSON or raw string." }
+    }
+  },
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_ms": 500,
+    "retryable_errors": ["rate_limited", "transient_5xx"]
+  }
+}
