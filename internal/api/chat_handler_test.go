@@ -141,3 +141,53 @@ func TestChat_proposesWorkflowAndStreamsSSE(t *testing.T) {
 		t.Errorf("missing tool slug in proposal: %s", body)
 	}
 }
+
+func TestChat_secondMessageSeesHistory(t *testing.T) {
+	mock := provider.NewMock()
+	// First turn: simple text reply
+	mock.Reply(provider.ChatResponse{Content: "What do you want it to do?", StopReason: "stop"})
+	// Second turn: assert the mock saw the first user message in history
+	mock.Reply(provider.ChatResponse{
+		Content: "Got it.",
+		ToolCalls: []provider.ToolCall{{
+			ID: "c", Name: "propose_workflow",
+			Arguments: []byte(`{"name":"d","nodes":[{"id":"n","tool":"core.set","params":{"values":{}}}],"edges":[]}`),
+		}},
+		StopReason: "tool_use",
+	})
+
+	srv, _, _ := newChatAPI(t, mock)
+	cookies, wfID := signupAndCreateWF(t, srv)
+
+	sendMsg := func(body string) *http.Response {
+		raw, _ := json.Marshal(map[string]any{"message": body, "model": "gpt-4o"})
+		req := httptest.NewRequest(http.MethodPost, "/v1/workflows/"+wfID+"/chat", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		return w.Result()
+	}
+	_ = sendMsg("Hi")
+	_ = sendMsg("Build a workflow for me")
+
+	calls := mock.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("calls: %d", len(calls))
+	}
+	second := calls[1].Messages
+	if len(second) < 4 {
+		t.Errorf("history too short: %+v", second)
+	}
+	foundFirstUser := false
+	for _, m := range second {
+		if m.Role == "user" && m.Content == "Hi" {
+			foundFirstUser = true
+		}
+	}
+	if !foundFirstUser {
+		t.Errorf("first user message not in second turn's history: %+v", second)
+	}
+}
