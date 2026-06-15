@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/efekckk/flowgent/internal/agent"
 	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/idgen"
@@ -27,7 +28,10 @@ type Deps struct {
 	Sessions     *storage.SessionRepo
 	Workflows    *storage.WorkflowRepo
 	Runs         *storage.WorkflowRunRepo
+	ChatThreads  *storage.ChatThreadRepo
+	ChatMessages *storage.ChatMessageRepo
 	Engine       *executor.Engine
+	Agent        *agent.Agent
 	Throttle     *auth.LoginThrottle
 	CookieDomain string
 	CookieSecure bool

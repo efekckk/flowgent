@@ -22,6 +22,7 @@ func NewServer(d Deps) http.Handler {
 		sub.Post("/workflows", d.handleCreateWorkflow)
 		sub.Get("/workflows/{id}", d.handleGetWorkflow)
 		sub.Post("/workflows/{id}/run", d.handleRunWorkflow)
+		sub.Post("/workflows/{id}/chat", d.handleChat)
 	})
 	return r
 }
