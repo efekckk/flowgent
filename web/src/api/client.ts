@@ -1,0 +1,68 @@
+import type {
+  SignupResponse, LoginResponse, MeResponse,
+  WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
+} from './types';
+
+const BASE = ''; // same-origin; dev uses Vite proxy
+
+class APIError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(BASE + path, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+    ...init,
+  });
+  if (!res.ok) {
+    let env: ErrorEnvelope | null = null;
+    try { env = await res.json(); } catch { /* non-JSON body */ }
+    throw new APIError(
+      res.status,
+      env?.error?.code || 'unknown',
+      env?.error?.message || res.statusText,
+    );
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  // Auth
+  signup: (email: string, password: string) =>
+    request<SignupResponse>('/v1/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  login: (email: string, password: string) =>
+    request<LoginResponse>('/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+  logout: () => request<void>('/v1/auth/logout', { method: 'POST' }),
+  me: () => request<MeResponse>('/v1/me'),
+
+  // Workflows
+  createWorkflow: (name: string, definition: WorkflowDefinition) =>
+    request<WorkflowDTO>('/v1/workflows', {
+      method: 'POST',
+      body: JSON.stringify({ name, definition }),
+    }),
+  getWorkflow: (id: string) =>
+    request<WorkflowDTO>(`/v1/workflows/${id}`),
+  runWorkflow: (id: string, triggerPayload?: Record<string, unknown>) =>
+    request<RunResponse>(`/v1/workflows/${id}/run`, {
+      method: 'POST',
+      body: JSON.stringify(triggerPayload || {}),
+    }),
+
+  // Chat is SSE — see chat/useChat.ts in a later task
+};
+
+export { APIError };
