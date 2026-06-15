@@ -5,10 +5,11 @@ import Canvas from '../canvas/Canvas';
 import ChatPanel from '../chat/ChatPanel';
 import NodeInspector from '../inspector/NodeInspector';
 import { useWorkflowsStore } from './workflowsStore';
+import { useChat } from '../chat/useChat';
 
 export default function WorkflowsPage() {
   const { id } = useParams<{ id: string }>();
-  const { current, fetchOne } = useWorkflowsStore();
+  const { current, fetchOne, setCurrent } = useWorkflowsStore();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,6 +21,11 @@ export default function WorkflowsPage() {
     if (!current?.definition || !selectedNodeId) return null;
     return current.definition.nodes.find((n) => n.id === selectedNodeId) || null;
   }, [current, selectedNodeId]);
+
+  const { send } = useChat(id || '', (def) => {
+    if (!current) return;
+    setCurrent({ ...current, definition: def });
+  });
 
   return (
     <div className="flex h-full bg-slate-50">
@@ -52,7 +58,7 @@ export default function WorkflowsPage() {
               </div>
               <NodeInspector node={selectedNode} onClose={() => setSelectedNodeId(null)} />
             </div>
-            <ChatPanel workflowId={current.id} />
+            <ChatPanel workflowId={current.id} onSend={send} />
           </>
         )}
       </main>
