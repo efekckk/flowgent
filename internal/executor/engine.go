@@ -77,8 +77,13 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 	for len(pending) > 0 {
 		batch := make([]*Node, 0, len(pending))
 		seen := make(map[string]bool, len(pending))
+		preserved := make([]Node, 0)
 		for _, n := range pending {
 			if visited[n.ID] || seen[n.ID] || state.Status(n.ID) != "pending" {
+				continue
+			}
+			if IsMergeNode(&n) && !AllUpstreamSucceeded(wf, n.ID, state) {
+				preserved = append(preserved, n)
 				continue
 			}
 			seen[n.ID] = true
@@ -86,6 +91,7 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 			batch = append(batch, &nn)
 		}
 		pending = pending[:0]
+		pending = append(pending, preserved...)
 		if len(batch) == 0 {
 			break
 		}
@@ -106,7 +112,7 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 			go func() {
 				defer wg.Done()
 				defer func() { <-sem }()
-				port, err := e.executeNode(ctx, node, state, opts)
+				port, err := e.executeNode(ctx, wf, node, state, opts)
 				results[i] = result{node: node, port: port, err: err}
 			}()
 		}
@@ -142,12 +148,22 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 	return state, nil
 }
 
-func (e *Engine) executeNode(ctx context.Context, node *Node, state *RunState, opts RunOptions) (string, error) {
+func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, state *RunState, opts RunOptions) (string, error) {
 	exec, ok := e.registry.Get(node.Tool)
 	if !ok {
 		state.SetStatus(node.ID, "failed")
 		state.SetRunStatus("failed", fmt.Sprintf("unknown tool %q", node.Tool))
 		return "", fmt.Errorf("executor: unknown tool %q", node.Tool)
+	}
+
+	// Merge nodes get their `inputs` materialised by the engine right before
+	// resolution, replacing the magic placeholder.
+	if IsMergeNode(node) {
+		upstreams := CollectUpstreamOutputs(wf, node.ID, state)
+		if node.Params == nil {
+			node.Params = map[string]any{}
+		}
+		node.Params["inputs"] = upstreams
 	}
 
 	state.SetStatus(node.ID, "running")
