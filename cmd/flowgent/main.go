@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/efekckk/flowgent/internal/agent"
 	"github.com/efekckk/flowgent/internal/api"
 	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/logging"
+	"github.com/efekckk/flowgent/internal/provider"
 	"github.com/efekckk/flowgent/internal/registry"
 	"github.com/efekckk/flowgent/internal/storage"
 
@@ -59,6 +61,26 @@ func main() {
 	}
 	logger.Info("tool registry loaded", "count", len(reg.List()))
 
+	provReg := provider.NewRegistry()
+	defaultProviderSlug := envOr("FLOWGENT_DEFAULT_PROVIDER", "openai")
+	var prov provider.ChatProvider
+	if p, err := provReg.For(defaultProviderSlug); err == nil {
+		prov = p
+		logger.Info("provider configured", "slug", defaultProviderSlug)
+	} else {
+		logger.Warn("provider unavailable, chat endpoint will return errors", "err", err)
+	}
+
+	knownTools := map[string]struct{}{}
+	for _, m := range reg.List() {
+		knownTools[m.Slug] = struct{}{}
+	}
+	ag := agent.New(agent.Deps{
+		Provider:   prov,
+		KnownTools: knownTools,
+		MaxRetries: 3,
+	})
+
 	engine := executor.NewEngine(reg)
 
 	srv := api.NewServer(api.Deps{
@@ -68,6 +90,9 @@ func main() {
 		Workflows:    storage.NewWorkflowRepo(pg.Pool),
 		Runs:         storage.NewWorkflowRunRepo(pg.Pool),
 		Engine:       engine,
+		ChatThreads:  storage.NewChatThreadRepo(pg.Pool),
+		ChatMessages: storage.NewChatMessageRepo(pg.Pool),
+		Agent:        ag,
 		Throttle:     auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
 		CookieDomain: envOr("SESSION_COOKIE_DOMAIN", "localhost"),
 		CookieSecure: envOr("SESSION_COOKIE_SECURE", "false") == "true",
