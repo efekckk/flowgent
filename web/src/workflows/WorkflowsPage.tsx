@@ -4,6 +4,7 @@ import WorkflowList from './WorkflowList';
 import Canvas from '../canvas/Canvas';
 import ChatPanel from '../chat/ChatPanel';
 import NodeInspector from '../inspector/NodeInspector';
+import RunBar from '../runs/RunBar';
 import { useWorkflowsStore } from './workflowsStore';
 import { useChat } from '../chat/useChat';
 
@@ -56,6 +57,7 @@ export default function WorkflowsPage() {
                   />
                 )}
               </div>
+              <RunBar workflowId={current.id} />
               <NodeInspector node={selectedNode} onClose={() => setSelectedNodeId(null)} />
             </div>
             <ChatPanel workflowId={current.id} onSend={send} />
