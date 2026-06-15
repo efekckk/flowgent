@@ -2,7 +2,7 @@
 
 AI-first workflow automation. You describe what you want in plain language, AI builds the workflow.
 
-> Status: pre-alpha. **Foundation (M1) complete.** See `docs/plans/` for the next milestone.
+> Status: pre-alpha. **Engine Core (M2) complete.** See `docs/plans/` for the next milestone.
 
 ## Run locally
 
@@ -29,20 +29,36 @@ Integration tests use [dockertest](https://github.com/ory/dockertest); they auto
 
 ## Current API surface
 
-| Method | Path                | Description                              |
-|--------|---------------------|------------------------------------------|
-| GET    | /health             | Liveness probe                           |
-| POST   | /v1/auth/signup     | Create user + default workspace + session |
-| POST   | /v1/auth/login      | Issue session for existing user          |
-| POST   | /v1/auth/logout     | Invalidate session                       |
-| GET    | /v1/me              | Current user (auth required)             |
+| Method | Path                          | Description                              |
+|--------|-------------------------------|------------------------------------------|
+| GET    | /health                       | Liveness probe                           |
+| POST   | /v1/auth/signup               | Create user + default workspace + session |
+| POST   | /v1/auth/login                | Issue session for existing user          |
+| POST   | /v1/auth/logout               | Invalidate session                       |
+| GET    | /v1/me                        | Current user (auth required)             |
+| POST   | /v1/workflows                 | Create workflow (draft, v1)              |
+| GET    | /v1/workflows/{id}            | Read workflow with current definition    |
+| POST   | /v1/workflows/{id}/run        | Execute workflow manually                |
+
+## Available tools
+
+| Slug          | Category   | What it does |
+|---------------|------------|--------------|
+| http.request  | core       | HTTP GET/POST/etc. with classified retry errors |
+| core.if       | control    | Compares two values, routes to true/false port  |
+| core.set      | transform  | Emits its `values` map as the node output       |
+| core.wait     | control    | Sleeps N ms, honours ctx cancellation           |
+
+## Expressions
+
+Inside node params, use `{{ $trigger.field }}`, `{{ $nodes.<id>.<field> }}`, `{{ $now }}`, or any expr-lang expression. A param whose entire value is a single `{{ ... }}` keeps its native type (int / map / etc.); embedded expressions are stringified into the surrounding template.
 
 ## Roadmap
 
 See `docs/specs/2026-06-12-flowgent-design.md` for full design. Milestone status:
 
 - [x] M1 Foundation — auth, sessions, base storage
-- [ ] M2 Engine core — tool registry, expression engine, first primitive nodes
+- [x] M2 Engine core — tool registry, expression engine, first primitive nodes
 - [ ] M3 DAG + paralel — loop, merge, code sandbox, parallel branches
 - [ ] M4 AI agent — provider abstraction, workflow generation loop
 - [ ] M5 UI shell — React + ReactFlow + chat panel
