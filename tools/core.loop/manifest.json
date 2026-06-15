@@ -1,0 +1,25 @@
+{
+  "slug": "core.loop",
+  "version": "1.0.0",
+  "display_name": "Loop",
+  "category": "control",
+  "description": "Iterates over an array, executing the listed body nodes once per item. Within the body, `$nodes.<loop_id>.current` is the current item and `$nodes.<loop_id>.index` is the iteration index. After all items, execution continues from the loop's `done` output port.",
+  "inputs": {
+    "type": "object",
+    "required": ["items", "body"],
+    "properties": {
+      "items": { "type": "array", "description": "The collection to iterate over." },
+      "body":  { "type": "array", "items": { "type": "string" },
+                 "description": "Ordered list of node IDs that form the loop body." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "current": { "description": "Current item during iteration." },
+      "index":   { "type": "integer" },
+      "total":   { "type": "integer" },
+      "iterations": { "type": "integer" }
+    }
+  }
+}
