@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/efekckk/flowgent/internal/expression"
@@ -18,6 +19,7 @@ type Engine struct {
 	registry    *registry.Registry
 	maxAttempts int
 	backoff     func(attempt int) time.Duration
+	maxParallel int
 }
 
 type Option func(*Engine)
@@ -30,11 +32,20 @@ func WithBackoff(fn func(attempt int) time.Duration) Option {
 	return func(e *Engine) { e.backoff = fn }
 }
 
+func WithMaxParallel(n int) Option {
+	return func(e *Engine) {
+		if n > 0 {
+			e.maxParallel = n
+		}
+	}
+}
+
 func NewEngine(reg *registry.Registry, opts ...Option) *Engine {
 	e := &Engine{
 		registry:    reg,
 		maxAttempts: 3,
 		backoff:     defaultBackoff,
+		maxParallel: 8,
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -64,30 +75,65 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 
 	visited := make(map[string]bool)
 	for len(pending) > 0 {
-		node := pending[0]
-		pending = pending[1:]
-		if visited[node.ID] || state.Status(node.ID) != "pending" {
-			continue
-		}
-		visited[node.ID] = true
-
-		port, err := e.executeNode(ctx, &node, state, opts)
-		if err != nil {
-			return state, err
-		}
-
-		for _, edge := range wf.Edges {
-			if edge.From != node.ID {
+		batch := make([]*Node, 0, len(pending))
+		seen := make(map[string]bool, len(pending))
+		for _, n := range pending {
+			if visited[n.ID] || seen[n.ID] || state.Status(n.ID) != "pending" {
 				continue
 			}
-			next, ok := wf.NodeByID(edge.To)
-			if !ok {
-				continue
+			seen[n.ID] = true
+			nn := n
+			batch = append(batch, &nn)
+		}
+		pending = pending[:0]
+		if len(batch) == 0 {
+			break
+		}
+
+		sem := make(chan struct{}, e.maxParallel)
+		type result struct {
+			node *Node
+			port string
+			err  error
+		}
+		results := make([]result, len(batch))
+		var wg sync.WaitGroup
+		for i, node := range batch {
+			i, node := i, node
+			visited[node.ID] = true
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				port, err := e.executeNode(ctx, node, state, opts)
+				results[i] = result{node: node, port: port, err: err}
+			}()
+		}
+		wg.Wait()
+
+		for _, r := range results {
+			if r.err != nil {
+				return state, r.err
 			}
-			if edge.FromPort == port {
-				pending = append(pending, next)
-			} else {
-				state.SetStatus(next.ID, "skipped")
+		}
+
+		for _, r := range results {
+			for _, edge := range wf.Edges {
+				if edge.From != r.node.ID {
+					continue
+				}
+				next, ok := wf.NodeByID(edge.To)
+				if !ok {
+					continue
+				}
+				if edge.FromPort == r.port {
+					pending = append(pending, next)
+				} else {
+					if state.Status(next.ID) == "pending" {
+						state.SetStatus(next.ID, "skipped")
+					}
+				}
 			}
 		}
 	}

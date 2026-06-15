@@ -3,6 +3,7 @@ package executor_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,17 +12,31 @@ import (
 )
 
 type recordingExec struct {
+	mu     sync.Mutex
 	calls  []map[string]any
 	out    map[string]any
 	port   string
 	failNx int
 	err    error
+	slow   time.Duration
 }
 
-func (r *recordingExec) Execute(_ context.Context, input map[string]any) (registry.ExecuteResult, error) {
+func (r *recordingExec) Execute(ctx context.Context, input map[string]any) (registry.ExecuteResult, error) {
+	r.mu.Lock()
 	r.calls = append(r.calls, input)
+	failNx := r.failNx
 	if r.failNx > 0 {
 		r.failNx--
+	}
+	r.mu.Unlock()
+	if r.slow > 0 {
+		select {
+		case <-time.After(r.slow):
+		case <-ctx.Done():
+			return registry.ExecuteResult{}, ctx.Err()
+		}
+	}
+	if failNx > 0 {
 		return registry.ExecuteResult{}, r.err
 	}
 	port := r.port
@@ -206,5 +221,43 @@ func TestEngine_retryExhausted(t *testing.T) {
 	}
 	if len(rec.calls) != 3 {
 		t.Errorf("attempts: %d (want 3)", len(rec.calls))
+	}
+}
+
+func TestEngine_parallelBranchesExecuteSimultaneously(t *testing.T) {
+	reg := registry.New()
+	mk := func() *recordingExec {
+		return &recordingExec{out: map[string]any{}, slow: 100 * time.Millisecond}
+	}
+	reg.Register("slow.a", mk())
+	reg.Register("slow.b", mk())
+	reg.Register("slow.c", mk())
+	reg.Register("core.set", &recordingExec{out: map[string]any{}})
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "fan", Tool: "core.set", Params: map[string]any{"values": map[string]any{}}},
+			{ID: "a", Tool: "slow.a", Params: map[string]any{}},
+			{ID: "b", Tool: "slow.b", Params: map[string]any{}},
+			{ID: "c", Tool: "slow.c", Params: map[string]any{}},
+		},
+		Edges: []executor.Edge{
+			{From: "fan", FromPort: "main", To: "a", ToPort: "main"},
+			{From: "fan", FromPort: "main", To: "b", ToPort: "main"},
+			{From: "fan", FromPort: "main", To: "c", ToPort: "main"},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxParallel(8))
+	start := time.Now()
+	state, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := time.Since(start); got > 200*time.Millisecond {
+		t.Errorf("parallel execution took too long: %v (expected ~100ms)", got)
+	}
+	runStatus, _ := state.RunStatus()
+	if runStatus != "succeeded" {
+		t.Errorf("status: %s", runStatus)
 	}
 }
