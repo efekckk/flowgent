@@ -2,11 +2,14 @@ package corecode
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/efekckk/flowgent/internal/registry"
 )
+
+const maxOutputBytes = 1024 * 1024
 
 type Executor struct{}
 
@@ -20,8 +23,8 @@ func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.
 	bindings := map[string]any{
 		"input":    input,
 		"prev":     input["__prev"],
-		"$now":     time.Now().UTC().Format(time.RFC3339),
 		"$trigger": nil,
+		"$now":     time.Now().UTC().Format(time.RFC3339),
 		"$env":     nil,
 	}
 	out, err := run(ctx, code, bindings)
@@ -31,6 +34,13 @@ func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.
 	asMap, ok := out.(map[string]any)
 	if !ok {
 		asMap = map[string]any{"value": out}
+	}
+	jsonBytes, err := json.Marshal(asMap)
+	if err != nil {
+		return registry.ExecuteResult{}, fmt.Errorf("core.code: output is not JSON-serialisable: %w", err)
+	}
+	if len(jsonBytes) > maxOutputBytes {
+		return registry.ExecuteResult{}, fmt.Errorf("core.code: output exceeds %d bytes", maxOutputBytes)
 	}
 	return registry.ExecuteResult{Output: asMap, Port: "main"}, nil
 }
