@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/efekckk/flowgent/internal/webfs"
 )
 
 func NewServer(d Deps) http.Handler {
@@ -24,5 +25,7 @@ func NewServer(d Deps) http.Handler {
 		sub.Post("/workflows/{id}/run", d.handleRunWorkflow)
 		sub.Post("/workflows/{id}/chat", d.handleChat)
 	})
+	// Static SPA at root — must be last so existing /v1 and /health win.
+	r.Mount("/", webfs.Handler())
 	return r
 }

@@ -20,3 +20,7 @@ coverage.out
 # Web build artifacts
 web/dist
 web/node_modules
+
+# webfs embed: ignore built assets but keep the placeholder index.html
+internal/webfs/dist/*
+!internal/webfs/dist/index.html
