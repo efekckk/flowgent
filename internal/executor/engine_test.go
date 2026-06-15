@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/registry"
@@ -130,5 +131,75 @@ func TestEngine_nodeFailureMarksRunFailed(t *testing.T) {
 	}
 	if state.Status != "failed" {
 		t.Errorf("status: %s", state.Status)
+	}
+}
+
+func TestEngine_retryOnRateLimitedThenSucceed(t *testing.T) {
+	reg := registry.New()
+	rec := &recordingExec{
+		out:    map[string]any{"ok": true},
+		failNx: 2,
+		err:    executor.ErrRateLimited,
+	}
+	reg.Register("flaky.tool", rec)
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "n", Tool: "flaky.tool", Params: map[string]any{}},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxAttempts(3), executor.WithBackoff(func(int) time.Duration { return 0 }))
+	state, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if state.Status != "succeeded" {
+		t.Errorf("status: %s", state.Status)
+	}
+	if len(rec.calls) != 3 {
+		t.Errorf("attempts: %d (want 3)", len(rec.calls))
+	}
+}
+
+func TestEngine_noRetryOnAuthFailure(t *testing.T) {
+	reg := registry.New()
+	rec := &recordingExec{failNx: 5, err: executor.ErrAuthFailed}
+	reg.Register("bad.tool", rec)
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "n", Tool: "bad.tool", Params: map[string]any{}},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxAttempts(3), executor.WithBackoff(func(int) time.Duration { return 0 }))
+	state, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if state.Status != "failed" {
+		t.Errorf("status: %s", state.Status)
+	}
+	if len(rec.calls) != 1 {
+		t.Errorf("attempts: %d (want 1)", len(rec.calls))
+	}
+}
+
+func TestEngine_retryExhausted(t *testing.T) {
+	reg := registry.New()
+	rec := &recordingExec{failNx: 99, err: executor.ErrTransient5xx}
+	reg.Register("flaky.tool", rec)
+
+	wf := executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "n", Tool: "flaky.tool", Params: map[string]any{}},
+		},
+	}
+	eng := executor.NewEngine(reg, executor.WithMaxAttempts(3), executor.WithBackoff(func(int) time.Duration { return 0 }))
+	_, err := eng.Run(context.Background(), &wf, executor.RunOptions{TriggerKind: "manual"})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if len(rec.calls) != 3 {
+		t.Errorf("attempts: %d (want 3)", len(rec.calls))
 	}
 }

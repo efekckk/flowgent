@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/efekckk/flowgent/internal/expression"
 	"github.com/efekckk/flowgent/internal/registry"
@@ -13,22 +14,50 @@ type RunOptions struct {
 	TriggerPayload map[string]any
 }
 
-// RunState captures the in-memory state of a workflow run. The handler
-// layer (M2 Task 14) persists this into workflow_runs / node_runs rows.
 type RunState struct {
 	Status      string
 	Error       string
 	NodeStatus  map[string]string
 	NodeOutputs map[string]map[string]any
 	NodeInputs  map[string]map[string]any
-	NodePort    map[string]string // which output port each node fired
+	NodePort    map[string]string
 }
 
 type Engine struct {
-	registry *registry.Registry
+	registry    *registry.Registry
+	maxAttempts int
+	backoff     func(attempt int) time.Duration
 }
 
-func NewEngine(reg *registry.Registry) *Engine { return &Engine{registry: reg} }
+type Option func(*Engine)
+
+func WithMaxAttempts(n int) Option {
+	return func(e *Engine) { e.maxAttempts = n }
+}
+
+func WithBackoff(fn func(attempt int) time.Duration) Option {
+	return func(e *Engine) { e.backoff = fn }
+}
+
+func NewEngine(reg *registry.Registry, opts ...Option) *Engine {
+	e := &Engine{
+		registry:    reg,
+		maxAttempts: 3,
+		backoff:     defaultBackoff,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+func defaultBackoff(attempt int) time.Duration {
+	base := 500 * time.Millisecond
+	for i := 1; i < attempt; i++ {
+		base *= 2
+	}
+	return base
+}
 
 func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunState, error) {
 	state := RunState{
@@ -81,19 +110,40 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (RunSta
 		}
 		state.NodeInputs[node.ID] = resolved
 
-		res, err := exec.Execute(ctx, resolved)
-		if err != nil {
+		var res registry.ExecuteResult
+		var execErr error
+		attempts := 0
+		for attempts < e.maxAttempts {
+			attempts++
+			res, execErr = exec.Execute(ctx, resolved)
+			if execErr == nil {
+				break
+			}
+			if !IsRetryable(execErr) || attempts >= e.maxAttempts {
+				break
+			}
+			d := e.backoff(attempts)
+			if d > 0 {
+				select {
+				case <-time.After(d):
+				case <-ctx.Done():
+					execErr = ctx.Err()
+				}
+				if ctx.Err() != nil {
+					break
+				}
+			}
+		}
+		if execErr != nil {
 			state.NodeStatus[node.ID] = "failed"
 			state.Status = "failed"
-			state.Error = err.Error()
-			return state, err
+			state.Error = execErr.Error()
+			return state, execErr
 		}
 		state.NodeStatus[node.ID] = "succeeded"
 		state.NodeOutputs[node.ID] = res.Output
 		state.NodePort[node.ID] = res.Port
 
-		// activate downstreams matching the fired port; mark the rest as
-		// skipped (their subtree is unreachable from this branch decision)
 		for _, edge := range wf.Edges {
 			if edge.From != node.ID {
 				continue
