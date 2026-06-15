@@ -1,0 +1,22 @@
+{
+  "slug": "core.if",
+  "version": "1.0.0",
+  "display_name": "If / Switch",
+  "category": "control",
+  "description": "Compares two values and routes execution to the matching output port (\"true\" or \"false\"). Use to branch the workflow on a condition.",
+  "inputs": {
+    "type": "object",
+    "required": ["left", "op", "right"],
+    "properties": {
+      "left":  { "description": "Left operand; any JSON value." },
+      "op":    { "type": "string", "enum": ["==", "!=", ">", ">=", "<", "<=", "contains"] },
+      "right": { "description": "Right operand; any JSON value." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "matched": { "type": "boolean" }
+    }
+  }
+}
