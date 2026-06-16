@@ -1,0 +1,23 @@
+{
+  "slug": "postgres.query",
+  "version": "1.0.0",
+  "display_name": "Postgres: Query",
+  "category": "data",
+  "description": "Runs a parameterised SQL query against a Postgres DSN. Returns the result rows as an array of objects. Use $1, $2, ... in the query string and pass values via `args` to avoid SQL injection.",
+  "credentials": { "type": "postgres", "required": true },
+  "inputs": {
+    "type": "object",
+    "required": ["query"],
+    "properties": {
+      "query": { "type": "string", "description": "SQL with $1, $2, ... placeholders." },
+      "args":  { "type": "array",  "description": "Positional argument values." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "rows":  { "type": "array" },
+      "count": { "type": "integer" }
+    }
+  }
+}
