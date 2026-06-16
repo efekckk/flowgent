@@ -44,6 +44,11 @@ func (e *Engine) runLoop(ctx context.Context, wf *Workflow, node *Node, state *R
 	}
 
 	for i, item := range items {
+		// Per-iteration event so the run viewer can show progress on long
+		// loops. The item itself is never logged (could be PII / a fetched
+		// payload) — only the index/total pair.
+		e.logSink.Append(ctx, opts.RunID, node.ID, "info",
+			fmt.Sprintf("%s: iteration %d/%d", node.ID, i+1, len(items)))
 		// Surface iteration metadata via $nodes.<loop_id>
 		state.RecordOutput(node.ID, i, map[string]any{
 			"current": item,

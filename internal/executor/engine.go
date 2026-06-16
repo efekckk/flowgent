@@ -16,6 +16,10 @@ import (
 type RunOptions struct {
 	TriggerKind    string
 	TriggerPayload map[string]any
+	// RunID is forwarded to the configured LogSink so log rows can be tied
+	// back to a workflow_runs row. Optional: when empty the engine still
+	// emits events, the sink just sees an empty run id.
+	RunID string
 }
 
 type Engine struct {
@@ -26,6 +30,7 @@ type Engine struct {
 	credResolver CredentialResolver
 	runStore     RunStore
 	idgen        func() string
+	logSink      LogSink
 }
 
 type Option func(*Engine)
@@ -53,6 +58,7 @@ func NewEngine(reg *registry.Registry, opts ...Option) *Engine {
 		backoff:     defaultBackoff,
 		maxParallel: 8,
 		idgen:       idgen.NewRun,
+		logSink:     noopSink{},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -100,6 +106,11 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 				continue
 			}
 			if IsMergeNode(&n) && !AllUpstreamSucceeded(wf, n.ID, state) {
+				// Surface the names of upstreams we are still waiting on so a
+				// run viewer can explain why a merge node hasn't fired yet.
+				missing := pendingUpstreams(wf, n.ID, state)
+				e.logSink.Append(ctx, opts.RunID, n.ID, "info",
+					fmt.Sprintf("%s: waiting for %v", n.ID, missing))
 				preserved = append(preserved, n)
 				continue
 			}
@@ -228,6 +239,7 @@ func (e *Engine) RunFromReplay(ctx context.Context, workflowID, parentRunID stri
 	state, runErr := e.Run(ctx, wf, RunOptions{
 		TriggerKind:    "replay",
 		TriggerPayload: payload,
+		RunID:          runID,
 	})
 	finishedAt := time.Now().UTC()
 	status, statusErr := state.RunStatus()
@@ -259,7 +271,13 @@ func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, stat
 		node.Params["inputs"] = upstreams
 	}
 
+	// Emit "started" before resolving inputs so a viewer sees the node light
+	// up immediately. Tool slug + node id only — never the resolved input map
+	// (which can contain a resolved "__credential").
+	e.logSink.Append(ctx, opts.RunID, node.ID, "info",
+		fmt.Sprintf("%s: started", node.Tool))
 	state.SetStatus(node.ID, "running")
+	startedAt := time.Now()
 	evalCtx := expression.EvalContext{
 		Trigger: opts.TriggerPayload,
 		Nodes:   state.LatestOutputsMap(),
@@ -300,6 +318,10 @@ func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, stat
 		if !IsRetryable(execErr) || attempts >= e.maxAttempts {
 			break
 		}
+		// Retry-with-backoff: report the classified error verbatim; tools are
+		// responsible (per M7) for redacting secrets in their error messages.
+		e.logSink.Append(ctx, opts.RunID, node.ID, "warn",
+			fmt.Sprintf("%s: retry %d/%d: %v", node.Tool, attempts, e.maxAttempts, execErr))
 		d := e.backoff(attempts)
 		if d > 0 {
 			select {
@@ -321,14 +343,26 @@ func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, stat
 			}
 		}
 		if hasErrorEdge {
+			// Error-port routed: not a run-level failure, just a branch swap.
+			e.logSink.Append(ctx, opts.RunID, node.ID, "info",
+				fmt.Sprintf("%s: error routed via error port: %v", node.Tool, execErr))
 			state.RecordFailure(node.ID, 0, attempts, execErr.Error())
 			state.RecordOutput(node.ID, 0, map[string]any{"error": execErr.Error()}, "error")
 			return "error", nil
 		}
+		// Final failure — error message only, never the input map.
+		e.logSink.Append(ctx, opts.RunID, node.ID, "error",
+			fmt.Sprintf("%s: failed: %v", node.Tool, execErr))
 		state.RecordFailure(node.ID, 0, attempts, execErr.Error())
 		state.SetRunStatus("failed", execErr.Error())
 		return "", execErr
 	}
+	// Success — log elapsed time and the number of top-level output keys; the
+	// output content itself (which may include user-fetched bodies) is kept
+	// out of the log message.
+	elapsed := time.Since(startedAt).Milliseconds()
+	e.logSink.Append(ctx, opts.RunID, node.ID, "info",
+		fmt.Sprintf("%s: succeeded in %dms (%d output keys)", node.Tool, elapsed, len(res.Output)))
 	state.RecordOutput(node.ID, 0, res.Output, res.Port)
 	return res.Port, nil
 }

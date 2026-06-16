@@ -33,6 +33,20 @@ func AllUpstreamSucceeded(wf *Workflow, nodeID string, state *RunState) bool {
 	return true
 }
 
+// pendingUpstreams returns the ids of upstreams that are not yet in the
+// "succeeded" status. Used to populate merge-wait log events so a viewer can
+// see which branch is holding the merge.
+func pendingUpstreams(wf *Workflow, nodeID string, state *RunState) []string {
+	ups := UpstreamNodes(wf, nodeID)
+	out := make([]string, 0, len(ups))
+	for _, up := range ups {
+		if state.Status(up) != "succeeded" {
+			out = append(out, up)
+		}
+	}
+	return out
+}
+
 // CollectUpstreamOutputs gathers the latest outputs of every upstream into
 // the order they appear in wf.Edges. Used to fill in merge inputs.
 func CollectUpstreamOutputs(wf *Workflow, nodeID string, state *RunState) []any {
