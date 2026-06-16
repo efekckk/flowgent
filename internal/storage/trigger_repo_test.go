@@ -6,13 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/efekckk/flowgent/internal/idgen"
 	"github.com/efekckk/flowgent/internal/storage"
 )
 
-func setupTriggerContext(t *testing.T) (*storage.TriggerRepo, *pgxpool.Pool, storage.Workflow) {
+func setupTriggerContext(t *testing.T) (*storage.TriggerRepo, storage.Workflow) {
 	t.Helper()
 	pool := openFresh(t)
 	users := storage.NewUserRepo(pool)
@@ -33,11 +31,11 @@ func setupTriggerContext(t *testing.T) (*storage.TriggerRepo, *pgxpool.Pool, sto
 	if err := workflows.Insert(ctx, wf); err != nil {
 		t.Fatalf("workflow: %v", err)
 	}
-	return repo, pool, wf
+	return repo, wf
 }
 
 func TestTriggerRepo_InsertAndList(t *testing.T) {
-	repo, _, wf := setupTriggerContext(t)
+	repo, wf := setupTriggerContext(t)
 	ctx := context.Background()
 
 	in := storage.Trigger{
@@ -60,12 +58,18 @@ func TestTriggerRepo_InsertAndList(t *testing.T) {
 }
 
 func TestTriggerRepo_ListEnabledByKind(t *testing.T) {
-	repo, _, wf := setupTriggerContext(t)
+	repo, wf := setupTriggerContext(t)
 	ctx := context.Background()
 
-	_ = repo.Insert(ctx, storage.Trigger{ID: "t1", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true})
-	_ = repo.Insert(ctx, storage.Trigger{ID: "t2", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: false})
-	_ = repo.Insert(ctx, storage.Trigger{ID: "t3", WorkflowID: wf.ID, Kind: "webhook", Config: json.RawMessage(`{}`), Enabled: true})
+	if err := repo.Insert(ctx, storage.Trigger{ID: "t1", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true}); err != nil {
+		t.Fatalf("setup insert t1: %v", err)
+	}
+	if err := repo.Insert(ctx, storage.Trigger{ID: "t2", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: false}); err != nil {
+		t.Fatalf("setup insert t2: %v", err)
+	}
+	if err := repo.Insert(ctx, storage.Trigger{ID: "t3", WorkflowID: wf.ID, Kind: "webhook", Config: json.RawMessage(`{}`), Enabled: true}); err != nil {
+		t.Fatalf("setup insert t3: %v", err)
+	}
 
 	crons, err := repo.ListEnabledByKind(ctx, "cron")
 	if err != nil {
@@ -77,9 +81,11 @@ func TestTriggerRepo_ListEnabledByKind(t *testing.T) {
 }
 
 func TestTriggerRepo_UpdateAndGet(t *testing.T) {
-	repo, _, wf := setupTriggerContext(t)
+	repo, wf := setupTriggerContext(t)
 	ctx := context.Background()
-	_ = repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true})
+	if err := repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true}); err != nil {
+		t.Fatalf("setup insert: %v", err)
+	}
 
 	if err := repo.UpdateConfig(ctx, "trg", json.RawMessage(`{"cron":"0 9 * * *"}`), false); err != nil {
 		t.Fatalf("update: %v", err)
@@ -97,9 +103,11 @@ func TestTriggerRepo_UpdateAndGet(t *testing.T) {
 }
 
 func TestTriggerRepo_Delete(t *testing.T) {
-	repo, _, wf := setupTriggerContext(t)
+	repo, wf := setupTriggerContext(t)
 	ctx := context.Background()
-	_ = repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "webhook", Config: json.RawMessage(`{}`), Enabled: true})
+	if err := repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "webhook", Config: json.RawMessage(`{}`), Enabled: true}); err != nil {
+		t.Fatalf("setup insert: %v", err)
+	}
 
 	if err := repo.Delete(ctx, "trg"); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -113,9 +121,11 @@ func TestTriggerRepo_Delete(t *testing.T) {
 }
 
 func TestTriggerRepo_TouchLastFired(t *testing.T) {
-	repo, _, wf := setupTriggerContext(t)
+	repo, wf := setupTriggerContext(t)
 	ctx := context.Background()
-	_ = repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true})
+	if err := repo.Insert(ctx, storage.Trigger{ID: "trg", WorkflowID: wf.ID, Kind: "cron", Config: json.RawMessage(`{}`), Enabled: true}); err != nil {
+		t.Fatalf("setup insert: %v", err)
+	}
 
 	if err := repo.TouchLastFired(ctx, "trg"); err != nil {
 		t.Fatalf("touch: %v", err)

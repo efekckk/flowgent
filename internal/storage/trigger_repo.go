@@ -1,7 +1,3 @@
-// TriggerRepo persists the cron and webhook trigger configurations attached
-// to a workflow. The scheduler reads enabled cron rows at boot, the webhook
-// handler resolves single rows by id, and the API handler manages the CRUD
-// lifecycle. config is opaque jsonb to keep new trigger kinds additive.
 package storage
 
 import (
@@ -26,6 +22,10 @@ type Trigger struct {
 	UpdatedAt   time.Time
 }
 
+// TriggerRepo persists the cron and webhook trigger configurations attached
+// to a workflow. The scheduler reads enabled cron rows at boot, the webhook
+// handler resolves single rows by id, and the API handler manages the CRUD
+// lifecycle. Config is opaque jsonb to keep new trigger kinds additive.
 type TriggerRepo struct {
 	pool *pgxpool.Pool
 }
@@ -40,7 +40,7 @@ func (r *TriggerRepo) Insert(ctx context.Context, t Trigger) error {
 		INSERT INTO triggers (id, workflow_id, kind, config, enabled)
 		VALUES ($1, $2, $3, $4, $5)
 	`
-	_, err := r.pool.Exec(ctx, q, t.ID, t.WorkflowID, t.Kind, []byte(t.Config), t.Enabled)
+	_, err := r.pool.Exec(ctx, q, t.ID, t.WorkflowID, t.Kind, t.Config, t.Enabled)
 	if err != nil {
 		return fmt.Errorf("storage: insert trigger: %w", err)
 	}
@@ -53,9 +53,8 @@ func (r *TriggerRepo) Get(ctx context.Context, id string) (Trigger, error) {
 		FROM triggers WHERE id = $1
 	`
 	var t Trigger
-	var cfg []byte
 	err := r.pool.QueryRow(ctx, q, id).Scan(
-		&t.ID, &t.WorkflowID, &t.Kind, &cfg, &t.Enabled, &t.LastFiredAt, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.WorkflowID, &t.Kind, &t.Config, &t.Enabled, &t.LastFiredAt, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Trigger{}, ErrNotFound
@@ -63,7 +62,6 @@ func (r *TriggerRepo) Get(ctx context.Context, id string) (Trigger, error) {
 	if err != nil {
 		return Trigger{}, fmt.Errorf("storage: get trigger: %w", err)
 	}
-	t.Config = cfg
 	return t, nil
 }
 
@@ -98,7 +96,7 @@ func (r *TriggerRepo) UpdateConfig(ctx context.Context, id string, cfg json.RawM
 		cfg = json.RawMessage(`{}`)
 	}
 	const q = `UPDATE triggers SET config = $2, enabled = $3 WHERE id = $1`
-	tag, err := r.pool.Exec(ctx, q, id, []byte(cfg), enabled)
+	tag, err := r.pool.Exec(ctx, q, id, cfg, enabled)
 	if err != nil {
 		return fmt.Errorf("storage: update trigger: %w", err)
 	}
@@ -136,12 +134,10 @@ func collectTriggers(rows pgx.Rows) ([]Trigger, error) {
 	var out []Trigger
 	for rows.Next() {
 		var t Trigger
-		var cfg []byte
-		if err := rows.Scan(&t.ID, &t.WorkflowID, &t.Kind, &cfg, &t.Enabled,
+		if err := rows.Scan(&t.ID, &t.WorkflowID, &t.Kind, &t.Config, &t.Enabled,
 			&t.LastFiredAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("storage: scan trigger: %w", err)
 		}
-		t.Config = cfg
 		out = append(out, t)
 	}
 	return out, rows.Err()
