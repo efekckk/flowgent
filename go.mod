@@ -12,6 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/ory/dockertest/v3 v3.12.0
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.53.0
 )
 
