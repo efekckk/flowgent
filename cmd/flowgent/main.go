@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/efekckk/flowgent/internal/agent"
 	"github.com/efekckk/flowgent/internal/api"
 	"github.com/efekckk/flowgent/internal/auth"
+	"github.com/efekckk/flowgent/internal/crypto"
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/logging"
 	"github.com/efekckk/flowgent/internal/provider"
@@ -23,6 +26,7 @@ import (
 	coreset "github.com/efekckk/flowgent/tools/core.set"
 	corewait "github.com/efekckk/flowgent/tools/core.wait"
 	httprequest "github.com/efekckk/flowgent/tools/http.request"
+	llmchat "github.com/efekckk/flowgent/tools/llm.chat"
 )
 
 func main() {
@@ -46,6 +50,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer pg.Close()
+
+	masterKeyB64 := envOr("FLOWGENT_CRED_KEY", "")
+	if masterKeyB64 == "" {
+		logger.Error("FLOWGENT_CRED_KEY is required (base64-encoded 32-byte key)")
+		os.Exit(1)
+	}
+	masterKey, err := crypto.ParseMasterKey(masterKeyB64)
+	if err != nil {
+		logger.Error("master key invalid", "err", err)
+		os.Exit(1)
+	}
+
+	credRepo := storage.NewCredentialRepo(pg.Pool)
+
+	credResolver := &workflowCredentialResolver{
+		repo: credRepo,
+		key:  masterKey,
+	}
 
 	reg := registry.New()
 	reg.Register("core.wait", corewait.New())
@@ -71,6 +93,14 @@ func main() {
 		logger.Warn("provider unavailable, chat endpoint will return errors", "err", err)
 	}
 
+	llmProviderResolver := &llmProviderResolverImpl{
+		repo:        credRepo,
+		key:         masterKey,
+		providerReg: provReg,
+	}
+
+	reg.Register("llm.chat", llmchat.New(llmProviderResolver))
+
 	knownTools := map[string]struct{}{}
 	for _, m := range reg.List() {
 		knownTools[m.Slug] = struct{}{}
@@ -81,21 +111,23 @@ func main() {
 		MaxRetries: 3,
 	})
 
-	engine := executor.NewEngine(reg)
+	engine := executor.NewEngine(reg, executor.WithCredentialResolver(credResolver))
 
 	srv := api.NewServer(api.Deps{
-		Users:        storage.NewUserRepo(pg.Pool),
-		Workspaces:   storage.NewWorkspaceRepo(pg.Pool),
-		Sessions:     storage.NewSessionRepo(pg.Pool),
-		Workflows:    storage.NewWorkflowRepo(pg.Pool),
-		Runs:         storage.NewWorkflowRunRepo(pg.Pool),
-		Engine:       engine,
-		ChatThreads:  storage.NewChatThreadRepo(pg.Pool),
-		ChatMessages: storage.NewChatMessageRepo(pg.Pool),
-		Agent:        ag,
-		Throttle:     auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
-		CookieDomain: envOr("SESSION_COOKIE_DOMAIN", "localhost"),
-		CookieSecure: envOr("SESSION_COOKIE_SECURE", "false") == "true",
+		Users:         storage.NewUserRepo(pg.Pool),
+		Workspaces:    storage.NewWorkspaceRepo(pg.Pool),
+		Sessions:      storage.NewSessionRepo(pg.Pool),
+		Workflows:     storage.NewWorkflowRepo(pg.Pool),
+		Runs:          storage.NewWorkflowRunRepo(pg.Pool),
+		Engine:        engine,
+		ChatThreads:   storage.NewChatThreadRepo(pg.Pool),
+		ChatMessages:  storage.NewChatMessageRepo(pg.Pool),
+		Agent:         ag,
+		Throttle:      auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
+		CookieDomain:  envOr("SESSION_COOKIE_DOMAIN", "localhost"),
+		CookieSecure:  envOr("SESSION_COOKIE_SECURE", "false") == "true",
+		Credentials:   credRepo,
+		CredentialKey: masterKey,
 	})
 
 	addr := ":" + envOr("PORT", "8080")
@@ -111,4 +143,49 @@ func envOr(k, fallback string) string {
 		return strings.TrimSpace(v)
 	}
 	return fallback
+}
+
+type workflowCredentialResolver struct {
+	repo *storage.CredentialRepo
+	key  []byte
+}
+
+func (r *workflowCredentialResolver) Resolve(ctx context.Context, credentialRef string) (map[string]any, error) {
+	cred, err := r.repo.Get(ctx, credentialRef)
+	if err != nil {
+		return nil, err
+	}
+	plain, err := crypto.Decrypt(cred.Encrypted, r.key)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w", err)
+	}
+	var secret map[string]any
+	if err := json.Unmarshal(plain, &secret); err != nil {
+		return nil, fmt.Errorf("parse secret: %w", err)
+	}
+	secret["__type"] = cred.Type
+	secret["__id"] = cred.ID
+	return secret, nil
+}
+
+type llmProviderResolverImpl struct {
+	repo        *storage.CredentialRepo
+	key         []byte
+	providerReg *provider.Registry
+}
+
+func (r *llmProviderResolverImpl) ResolveForNodeCredential(_ context.Context, input map[string]any) (provider.ChatProvider, error) {
+	cred, ok := input["__credential"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("missing __credential")
+	}
+	credType, _ := cred["__type"].(string)
+	if credType == "" {
+		return nil, fmt.Errorf("credential missing __type")
+	}
+	encoded, err := json.Marshal(cred)
+	if err != nil {
+		return nil, err
+	}
+	return r.providerReg.ForCredential(credType, encoded)
 }
