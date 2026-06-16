@@ -34,3 +34,5 @@ func NewRun() string             { return newID("run_") }
 func NewNodeRun() string         { return newID("nrun_") }
 func NewChatThread() string      { return newID("thr_") }
 func NewChatMessage() string     { return newID("msg_") }
+func NewTrigger() string         { return newID("trg_") }
+func NewToken() string           { return newID("tok_") }

@@ -17,6 +17,7 @@ import (
 	"github.com/efekckk/flowgent/internal/logging"
 	"github.com/efekckk/flowgent/internal/provider"
 	"github.com/efekckk/flowgent/internal/registry"
+	"github.com/efekckk/flowgent/internal/scheduler"
 	"github.com/efekckk/flowgent/internal/storage"
 
 	corecode "github.com/efekckk/flowgent/tools/core.code"
@@ -121,6 +122,16 @@ func main() {
 
 	engine := executor.NewEngine(reg, executor.WithCredentialResolver(credResolver))
 
+	triggerRepo := storage.NewTriggerRepo(pg.Pool)
+	sched := scheduler.New(stubFirer{})
+	loadCtx, loadCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := sched.LoadFromDB(loadCtx, triggerLoader{repo: triggerRepo}); err != nil {
+		logger.Warn("scheduler load failed; cron triggers will not fire until next restart", "err", err)
+	}
+	loadCancel()
+	sched.Start()
+	defer sched.Stop()
+
 	srv := api.NewServer(api.Deps{
 		Users:         storage.NewUserRepo(pg.Pool),
 		Workspaces:    storage.NewWorkspaceRepo(pg.Pool),
@@ -131,11 +142,14 @@ func main() {
 		ChatThreads:   storage.NewChatThreadRepo(pg.Pool),
 		ChatMessages:  storage.NewChatMessageRepo(pg.Pool),
 		Agent:         ag,
+		Triggers:      triggerRepo,
+		Scheduler:     sched,
 		Throttle:      auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
 		CookieDomain:  envOr("SESSION_COOKIE_DOMAIN", "localhost"),
 		CookieSecure:  envOr("SESSION_COOKIE_SECURE", "false") == "true",
 		Credentials:   credRepo,
 		CredentialKey: masterKey,
+		PublicBaseURL: envOr("FLOWGENT_PUBLIC_BASE_URL", "http://localhost:8080"),
 	})
 
 	addr := ":" + envOr("PORT", "8080")
@@ -180,6 +194,38 @@ type llmProviderResolverImpl struct {
 	repo        *storage.CredentialRepo
 	key         []byte
 	providerReg *provider.Registry
+}
+
+// stubFirer is a no-op Firer used until the real trigger dispatcher is wired
+// in. It keeps the scheduler operational so cron expressions are validated
+// and registered, but no workflow run is started when a tick fires.
+type stubFirer struct{}
+
+func (stubFirer) FireTrigger(_ context.Context, _, _ string, _ map[string]any) error {
+	return nil
+}
+
+// triggerLoader adapts the trigger repo to the scheduler.Loader contract. The
+// scheduler only cares about (id, workflow_id, cron expression) tuples; the
+// rest of the trigger row is irrelevant for boot-time registration.
+type triggerLoader struct {
+	repo *storage.TriggerRepo
+}
+
+func (l triggerLoader) LoadEnabledCronTriggers(ctx context.Context) ([]scheduler.LoadedTrigger, error) {
+	rows, err := l.repo.ListEnabledByKind(ctx, "cron")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]scheduler.LoadedTrigger, 0, len(rows))
+	for _, row := range rows {
+		var cfg struct {
+			Cron string `json:"cron"`
+		}
+		_ = json.Unmarshal(row.Config, &cfg)
+		out = append(out, scheduler.LoadedTrigger{ID: row.ID, WorkflowID: row.WorkflowID, Expression: cfg.Cron})
+	}
+	return out, nil
 }
 
 func (r *llmProviderResolverImpl) ResolveForNodeCredential(_ context.Context, input map[string]any) (provider.ChatProvider, error) {

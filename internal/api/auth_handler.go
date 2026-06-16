@@ -12,6 +12,7 @@ import (
 	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/idgen"
+	"github.com/efekckk/flowgent/internal/scheduler"
 	"github.com/efekckk/flowgent/internal/storage"
 )
 
@@ -31,12 +32,15 @@ type Deps struct {
 	ChatThreads   *storage.ChatThreadRepo
 	ChatMessages  *storage.ChatMessageRepo
 	Credentials   *storage.CredentialRepo
+	Triggers      *storage.TriggerRepo
 	Engine        *executor.Engine
 	Agent         *agent.Agent
+	Scheduler     *scheduler.Scheduler
 	Throttle      *auth.LoginThrottle
 	CredentialKey []byte
 	CookieDomain  string
 	CookieSecure  bool
+	PublicBaseURL string
 }
 
 type signupRequest struct {
