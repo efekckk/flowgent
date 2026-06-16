@@ -1,0 +1,30 @@
+{
+  "slug": "telegram.send_message",
+  "version": "1.0.0",
+  "display_name": "Telegram: Send Message",
+  "category": "communication",
+  "description": "Sends a message to a Telegram chat via the Bot API. Requires a credential of type telegram_bot with a `bot_token` field.",
+  "credentials": { "type": "telegram_bot", "required": true },
+  "inputs": {
+    "type": "object",
+    "required": ["chat_id", "text"],
+    "properties": {
+      "chat_id":    { "type": "string", "description": "Numeric chat id or @channelname." },
+      "text":       { "type": "string", "description": "Message body." },
+      "parse_mode": { "type": "string", "enum": ["Markdown", "MarkdownV2", "HTML", ""], "description": "Optional parse mode." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "message_id": { "type": "integer" },
+      "ok":         { "type": "boolean" }
+    }
+  },
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_ms": 500,
+    "retryable_errors": ["rate_limited", "transient_5xx"]
+  }
+}
