@@ -1,0 +1,31 @@
+{
+  "slug": "llm.chat",
+  "version": "1.0.0",
+  "display_name": "LLM: Chat",
+  "category": "ai",
+  "description": "Calls an LLM provider with system + user messages and returns the assistant's text. Use to summarize, classify, extract data, or generate copy. Requires a credential whose type matches the chosen model's provider (e.g., openai for gpt-4o, anthropic for claude-3-7-sonnet).",
+  "credentials": { "type": "openai_or_anthropic", "required": true },
+  "inputs": {
+    "type": "object",
+    "required": ["model", "user"],
+    "properties": {
+      "model":  { "type": "string", "description": "Model id, e.g. gpt-4o or claude-3-7-sonnet" },
+      "system": { "type": "string", "description": "Optional system prompt." },
+      "user":   { "type": "string", "description": "User prompt; may contain {{ $trigger.* }} or {{ $nodes.<id>.* }}." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "content": { "type": "string" },
+      "model":   { "type": "string" },
+      "tokens":  { "type": "integer" }
+    }
+  },
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_ms": 500,
+    "retryable_errors": ["rate_limited", "transient_5xx"]
+  }
+}
