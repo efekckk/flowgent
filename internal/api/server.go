@@ -24,6 +24,9 @@ func NewServer(d Deps) http.Handler {
 		sub.Get("/workflows/{id}", d.handleGetWorkflow)
 		sub.Post("/workflows/{id}/run", d.handleRunWorkflow)
 		sub.Post("/workflows/{id}/chat", d.handleChat)
+		sub.Post("/credentials", d.handleCreateCredential)
+		sub.Get("/credentials", d.handleListCredentials)
+		sub.Delete("/credentials/{id}", d.handleDeleteCredential)
 	})
 	// Static SPA at root — must be last so existing /v1 and /health win.
 	r.Mount("/", webfs.Handler())

@@ -23,18 +23,20 @@ const (
 )
 
 type Deps struct {
-	Users        *storage.UserRepo
-	Workspaces   *storage.WorkspaceRepo
-	Sessions     *storage.SessionRepo
-	Workflows    *storage.WorkflowRepo
-	Runs         *storage.WorkflowRunRepo
-	ChatThreads  *storage.ChatThreadRepo
-	ChatMessages *storage.ChatMessageRepo
-	Engine       *executor.Engine
-	Agent        *agent.Agent
-	Throttle     *auth.LoginThrottle
-	CookieDomain string
-	CookieSecure bool
+	Users         *storage.UserRepo
+	Workspaces    *storage.WorkspaceRepo
+	Sessions      *storage.SessionRepo
+	Workflows     *storage.WorkflowRepo
+	Runs          *storage.WorkflowRunRepo
+	ChatThreads   *storage.ChatThreadRepo
+	ChatMessages  *storage.ChatMessageRepo
+	Credentials   *storage.CredentialRepo
+	Engine        *executor.Engine
+	Agent         *agent.Agent
+	Throttle      *auth.LoginThrottle
+	CredentialKey []byte
+	CookieDomain  string
+	CookieSecure  bool
 }
 
 type signupRequest struct {
