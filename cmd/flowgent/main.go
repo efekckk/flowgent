@@ -25,8 +25,12 @@ import (
 	coremerge "github.com/efekckk/flowgent/tools/core.merge"
 	coreset "github.com/efekckk/flowgent/tools/core.set"
 	corewait "github.com/efekckk/flowgent/tools/core.wait"
+	emailsmtp "github.com/efekckk/flowgent/tools/email.smtp_send"
 	httprequest "github.com/efekckk/flowgent/tools/http.request"
 	llmchat "github.com/efekckk/flowgent/tools/llm.chat"
+	postgresquery "github.com/efekckk/flowgent/tools/postgres.query"
+	slacksend "github.com/efekckk/flowgent/tools/slack.send_message"
+	telegramsend "github.com/efekckk/flowgent/tools/telegram.send_message"
 )
 
 func main() {
@@ -77,6 +81,10 @@ func main() {
 	reg.Register("core.merge", coremerge.New())
 	reg.Register("core.loop", coreloop.New())
 	reg.Register("core.code", corecode.New())
+	reg.Register("slack.send_message", slacksend.New())
+	reg.Register("telegram.send_message", telegramsend.New())
+	reg.Register("email.smtp_send", emailsmtp.New())
+	reg.Register("postgres.query", postgresquery.New())
 	if err := reg.LoadFromDir(envOr("FLOWGENT_TOOLS_DIR", "./tools")); err != nil {
 		logger.Error("tool registry", "err", err)
 		os.Exit(1)

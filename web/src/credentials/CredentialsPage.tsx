@@ -2,30 +2,53 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useCredentialsStore } from './credentialsStore';
 import { useAuth } from '../auth/useAuth';
-
-const TYPE_OPTIONS = [
-  { value: 'openai', label: 'OpenAI API key' },
-  { value: 'anthropic', label: 'Anthropic API key' },
-];
+import { CREDENTIAL_TYPES, fieldsForType } from './credentialTypes';
 
 export default function CredentialsPage() {
   const { items, fetch, create, remove, error } = useCredentialsStore();
   const { logout } = useAuth();
   const [name, setName] = useState('');
-  const [type, setType] = useState('openai');
-  const [apiKey, setApiKey] = useState('');
+  const [type, setType] = useState(CREDENTIAL_TYPES[0].value);
+  const [fields, setFields] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of fieldsForType(CREDENTIAL_TYPES[0].value)) init[f.key] = '';
+    return init;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => { fetch(); }, [fetch]);
 
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const f of fieldsForType(type)) next[f.key] = '';
+    setFields(next);
+    setFormError(null);
+  }, [type]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !apiKey.trim()) return;
+    if (!name.trim()) {
+      setFormError('Name is required');
+      return;
+    }
+    const required = fieldsForType(type);
+    const secret: Record<string, string> = {};
+    for (const f of required) {
+      const v = (fields[f.key] || '').trim();
+      if (!v) {
+        setFormError(`${f.label} is required`);
+        return;
+      }
+      secret[f.key] = v;
+    }
     setSubmitting(true); setFormError(null);
     try {
-      await create(name.trim(), type, { api_key: apiKey.trim() });
-      setName(''); setApiKey('');
+      await create(name.trim(), type, secret);
+      setName('');
+      const cleared: Record<string, string> = {};
+      for (const f of required) cleared[f.key] = '';
+      setFields(cleared);
     } catch (err) {
       setFormError(String(err));
     } finally {
@@ -65,17 +88,22 @@ export default function CredentialsPage() {
               value={type} onChange={(e) => setType(e.target.value)}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             >
-              {TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {CREDENTIAL_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">API key</span>
-            <input
-              type="password" required value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm"
-            />
-          </label>
+          {fieldsForType(type).map((f) => (
+            <label key={f.key} className="block">
+              <span className="text-sm font-medium text-slate-700">{f.label}</span>
+              <input
+                type={f.type}
+                required
+                value={fields[f.key] || ''}
+                onChange={(e) => setFields((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                placeholder={f.placeholder}
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm"
+              />
+            </label>
+          ))}
           {formError && <p className="text-sm text-red-600">{formError}</p>}
           <button
             type="submit" disabled={submitting}
