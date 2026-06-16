@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTriggersStore } from './triggersStore';
 import { useWorkflowsStore } from '../workflows/workflowsStore';
 import { useAuth } from '../auth/useAuth';
+import LogSearchBar from '../search/LogSearchBar';
 
 const CRON_PRESETS: Array<{ value: string; label: string }> = [
   { value: '', label: 'Select a preset…' },
@@ -18,7 +19,7 @@ export default function TriggersPage() {
   const { id: workflowId } = useParams<{ id: string }>();
   const { items, fetch, create, toggle, remove, error } = useTriggersStore();
   const { current, fetchOne } = useWorkflowsStore();
-  const { logout } = useAuth();
+  const { logout, workspace } = useAuth();
 
   const [cron, setCron] = useState('');
   const [preset, setPreset] = useState('');
@@ -109,9 +110,12 @@ export default function TriggersPage() {
           Triggers
         </Link>
         <Link to="/credentials" className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Credentials</Link>
-        <button onClick={logout} className="mt-auto rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          Sign out
-        </button>
+        <div className="mt-auto space-y-2">
+          <LogSearchBar workspaceId={workspace?.id ?? null} />
+          <button onClick={logout} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <main className="flex-1 overflow-y-auto p-8">

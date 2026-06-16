@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useWorkflowsStore } from './workflowsStore';
 import { useAuth } from '../auth/useAuth';
+import LogSearchBar from '../search/LogSearchBar';
 
 export default function WorkflowList() {
   const navigate = useNavigate();
   const { id: currentId } = useParams<{ id: string }>();
   const { list, createEmpty } = useWorkflowsStore();
-  const { user, logout } = useAuth();
+  const { user, logout, workspace } = useAuth();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
 
@@ -52,6 +53,7 @@ export default function WorkflowList() {
         </ul>
       </div>
       <div className="border-t border-slate-200 p-3 space-y-2">
+        <LogSearchBar workspaceId={workspace?.id ?? null} />
         {creating ? (
           <div className="space-y-2">
             <input

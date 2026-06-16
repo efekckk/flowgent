@@ -12,6 +12,7 @@ import { useWorkflowsStore } from '../workflows/workflowsStore';
 import { useAuth } from '../auth/useAuth';
 import { workflowToFlow } from '../canvas/workflowToFlow';
 import type { NodeRun, RunLogEvent } from '../api/types';
+import LogSearchBar from '../search/LogSearchBar';
 
 type NodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | string;
 
@@ -180,7 +181,7 @@ function NodeIOPanel({ node }: { node: NodeRun | null }) {
 export default function RunDetailPage() {
   const { id: runId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, workspace } = useAuth();
   const { run, nodes, logs, loading, error, fetch, replay } = useRunDetailStore();
   const { current: workflow, fetchOne } = useWorkflowsStore();
 
@@ -266,9 +267,12 @@ export default function RunDetailPage() {
             All runs
           </Link>
         )}
-        <button onClick={logout} className="mt-auto rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          Sign out
-        </button>
+        <div className="mt-auto space-y-2">
+          <LogSearchBar workspaceId={workspace?.id ?? null} />
+          <button onClick={logout} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <main className="flex flex-1 flex-col">

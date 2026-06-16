@@ -227,9 +227,17 @@ func (d *Deps) handleMe(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"user": userDTO{ID: u.ID, Email: u.Email},
-	})
+	}
+	// Surface the user's primary workspace so the SPA can call workspace-
+	// scoped endpoints (e.g. run log search) without an extra round-trip.
+	if d.Workspaces != nil {
+		if ws, err := d.Workspaces.FindByOwner(r.Context(), u.ID); err == nil && len(ws) > 0 {
+			resp["workspace"] = workspaceDTO{ID: ws[0].ID, Name: ws[0].Name}
+		}
+	}
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 func (d *Deps) handleLogout(w http.ResponseWriter, r *http.Request) {

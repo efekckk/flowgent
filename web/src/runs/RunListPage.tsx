@@ -4,6 +4,7 @@ import { useRunsStore } from './runsStore';
 import { useWorkflowsStore } from '../workflows/workflowsStore';
 import { useAuth } from '../auth/useAuth';
 import type { WorkflowRun } from '../api/types';
+import LogSearchBar from '../search/LogSearchBar';
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '', label: 'All statuses' },
@@ -73,7 +74,7 @@ export default function RunListPage() {
     setFilter, fetch, loadMore,
   } = useRunsStore();
   const { current, fetchOne } = useWorkflowsStore();
-  const { logout } = useAuth();
+  const { logout, workspace } = useAuth();
 
   useEffect(() => {
     if (workflowId) {
@@ -133,9 +134,12 @@ export default function RunListPage() {
           Runs
         </Link>
         <Link to="/credentials" className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Credentials</Link>
-        <button onClick={logout} className="mt-auto rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          Sign out
-        </button>
+        <div className="mt-auto space-y-2">
+          <LogSearchBar workspaceId={workspace?.id ?? null} />
+          <button onClick={logout} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            Sign out
+          </button>
+        </div>
       </aside>
 
       <main className="flex-1 overflow-y-auto p-8">

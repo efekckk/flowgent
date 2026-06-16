@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { useCredentialsStore } from './credentialsStore';
 import { useAuth } from '../auth/useAuth';
 import { CREDENTIAL_TYPES, fieldsForType } from './credentialTypes';
+import LogSearchBar from '../search/LogSearchBar';
 
 export default function CredentialsPage() {
   const { items, fetch, create, remove, error } = useCredentialsStore();
-  const { logout } = useAuth();
+  const { logout, workspace } = useAuth();
   const [name, setName] = useState('');
   const [type, setType] = useState(CREDENTIAL_TYPES[0].value);
   const [fields, setFields] = useState<Record<string, string>>(() => {
@@ -62,9 +63,12 @@ export default function CredentialsPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Account</h2>
         <Link to="/workflows" className="mt-3 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">← Back to workflows</Link>
         <Link to="/credentials" className="rounded-md bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700">Credentials</Link>
-        <button onClick={logout} className="mt-auto rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-          Sign out
-        </button>
+        <div className="mt-auto space-y-2">
+          <LogSearchBar workspaceId={workspace?.id ?? null} />
+          <button onClick={logout} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+            Sign out
+          </button>
+        </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-8">
         <h1 className="text-2xl font-semibold text-slate-800">Credentials</h1>

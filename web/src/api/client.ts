@@ -2,7 +2,7 @@ import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
   CredentialDTO, Trigger, TriggerList, ListRunsResponse,
-  GetRunResponse,
+  GetRunResponse, SearchResponse,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -118,6 +118,12 @@ export const api = {
     request<GetRunResponse>(`/v1/runs/${id}`),
   replayRun: (id: string) =>
     request<{ run_id: string }>(`/v1/runs/${id}/replay`, { method: 'POST' }),
+
+  // Search
+  searchRunLogs: (wsID: string, q: string, limit = 20) =>
+    request<SearchResponse>(
+      `/v1/workspaces/${wsID}/runs/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
 };
 
 export { APIError };

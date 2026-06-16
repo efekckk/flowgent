@@ -19,6 +19,20 @@ export interface LoginResponse {
 
 export interface MeResponse {
   user: User;
+  workspace?: Workspace;
+}
+
+export interface SearchHit {
+  run_id: string;
+  workflow_id: string;
+  node_id: string;
+  message: string;
+  snippet: string;
+  at: string;
+}
+
+export interface SearchResponse {
+  hits: SearchHit[];
 }
 
 export interface WorkflowNode {
