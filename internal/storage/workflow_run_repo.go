@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,11 +19,24 @@ type WorkflowRun struct {
 	WorkflowVersion int
 	Status          string
 	TriggerKind     string
+	TriggerID       *string
 	TriggerPayload  json.RawMessage
+	ParentRunID     *string
 	Error           string
 	StartedAt       *time.Time
 	FinishedAt      *time.Time
 	CreatedAt       time.Time
+}
+
+// RunFilter constrains ListForWorkflow. All fields are optional; an empty
+// filter returns the most recent page. Cursor is opaque to callers and is
+// only meaningful when fed back into a subsequent ListForWorkflow call.
+type RunFilter struct {
+	Status string
+	From   *time.Time
+	To     *time.Time
+	Cursor string
+	Limit  int
 }
 
 type NodeRun struct {
@@ -57,12 +72,18 @@ type WorkflowRunRepo struct {
 func NewWorkflowRunRepo(pool *pgxpool.Pool) *WorkflowRunRepo { return &WorkflowRunRepo{pool: pool} }
 
 func (r *WorkflowRunRepo) NewRun(ctx context.Context, run WorkflowRun) error {
+	if len(run.TriggerPayload) == 0 {
+		run.TriggerPayload = json.RawMessage(`{}`)
+	}
 	const q = `
-		INSERT INTO workflow_runs (id, workflow_id, workflow_version, status, trigger_kind, trigger_payload)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO workflow_runs
+		  (id, workflow_id, workflow_version, status, trigger_kind,
+		   trigger_id, trigger_payload, parent_run_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err := r.pool.Exec(ctx, q,
-		run.ID, run.WorkflowID, run.WorkflowVersion, run.Status, run.TriggerKind, run.TriggerPayload,
+		run.ID, run.WorkflowID, run.WorkflowVersion, run.Status, run.TriggerKind,
+		run.TriggerID, run.TriggerPayload, run.ParentRunID,
 	)
 	if err != nil {
 		return fmt.Errorf("storage: new run: %w", err)
@@ -73,14 +94,16 @@ func (r *WorkflowRunRepo) NewRun(ctx context.Context, run WorkflowRun) error {
 func (r *WorkflowRunRepo) Get(ctx context.Context, id string) (WorkflowRun, error) {
 	const q = `
 		SELECT id, workflow_id, workflow_version, status, trigger_kind,
-		       COALESCE(trigger_payload, 'null'::jsonb), COALESCE(error, ''),
+		       trigger_id, COALESCE(trigger_payload, '{}'::jsonb), parent_run_id,
+		       COALESCE(error, ''),
 		       started_at, finished_at, created_at
 		FROM workflow_runs WHERE id = $1
 	`
 	var run WorkflowRun
 	err := r.pool.QueryRow(ctx, q, id).Scan(
 		&run.ID, &run.WorkflowID, &run.WorkflowVersion, &run.Status, &run.TriggerKind,
-		&run.TriggerPayload, &run.Error, &run.StartedAt, &run.FinishedAt, &run.CreatedAt,
+		&run.TriggerID, &run.TriggerPayload, &run.ParentRunID,
+		&run.Error, &run.StartedAt, &run.FinishedAt, &run.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return WorkflowRun{}, ErrNotFound
@@ -146,6 +169,125 @@ func (r *WorkflowRunRepo) UpdateNodeRun(ctx context.Context, id string, upd Node
 		return fmt.Errorf("storage: update node run: %w", err)
 	}
 	return nil
+}
+
+// ListForWorkflow returns runs for a workflow ordered newest first, optionally
+// filtered by status and a created_at range. Pagination uses a (created_at,
+// id) tuple cursor so ties on the timestamp do not cause rows to be skipped
+// or duplicated when the page boundary lands on simultaneous inserts.
+//
+// The returned cursor is empty when the caller has reached the end. A
+// non-empty cursor is only set when the page is full; partial pages signal
+// exhaustion.
+func (r *WorkflowRunRepo) ListForWorkflow(ctx context.Context, workflowID string, f RunFilter) ([]WorkflowRun, string, error) {
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	args := []any{workflowID}
+	var where []string
+	where = append(where, "workflow_id = $1")
+	if f.Status != "" {
+		args = append(args, f.Status)
+		where = append(where, fmt.Sprintf("status = $%d", len(args)))
+	}
+	if f.From != nil {
+		args = append(args, *f.From)
+		where = append(where, fmt.Sprintf("created_at >= $%d", len(args)))
+	}
+	if f.To != nil {
+		args = append(args, *f.To)
+		where = append(where, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
+	if f.Cursor != "" {
+		cAt, cID, err := decodeRunCursor(f.Cursor)
+		if err != nil {
+			return nil, "", fmt.Errorf("storage: list runs: %w", err)
+		}
+		args = append(args, cAt)
+		atIdx := len(args)
+		args = append(args, cID)
+		idIdx := len(args)
+		where = append(where, fmt.Sprintf(
+			"(created_at, id) < ($%d, $%d)", atIdx, idIdx,
+		))
+	}
+	args = append(args, limit)
+	limitIdx := len(args)
+
+	q := fmt.Sprintf(`
+		SELECT id, workflow_id, workflow_version, status, trigger_kind,
+		       trigger_id, COALESCE(trigger_payload, '{}'::jsonb), parent_run_id,
+		       COALESCE(error, ''),
+		       started_at, finished_at, created_at
+		FROM workflow_runs
+		WHERE %s
+		ORDER BY created_at DESC, id DESC
+		LIMIT $%d
+	`, strings.Join(where, " AND "), limitIdx)
+
+	rows, err := r.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("storage: list runs: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]WorkflowRun, 0, limit)
+	for rows.Next() {
+		var run WorkflowRun
+		if err := rows.Scan(
+			&run.ID, &run.WorkflowID, &run.WorkflowVersion, &run.Status, &run.TriggerKind,
+			&run.TriggerID, &run.TriggerPayload, &run.ParentRunID,
+			&run.Error, &run.StartedAt, &run.FinishedAt, &run.CreatedAt,
+		); err != nil {
+			return nil, "", fmt.Errorf("storage: scan run: %w", err)
+		}
+		out = append(out, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("storage: list runs: %w", err)
+	}
+
+	var nextCursor string
+	if len(out) == limit {
+		last := out[len(out)-1]
+		nextCursor = encodeRunCursor(last.CreatedAt, last.ID)
+	}
+	return out, nextCursor, nil
+}
+
+// GetWithNodes returns a single run plus all of its node_runs in one call.
+// The viewer and replay paths both need this exact shape.
+func (r *WorkflowRunRepo) GetWithNodes(ctx context.Context, runID string) (WorkflowRun, []NodeRun, error) {
+	run, err := r.Get(ctx, runID)
+	if err != nil {
+		return WorkflowRun{}, nil, err
+	}
+	nodes, err := r.ListNodeRuns(ctx, runID)
+	if err != nil {
+		return WorkflowRun{}, nil, err
+	}
+	return run, nodes, nil
+}
+
+// encodeRunCursor packs (created_at, id) into "<unix_nanos>:<id>". UnixNano
+// is timezone-independent and preserves microsecond ordering coming back
+// out of Postgres.
+func encodeRunCursor(at time.Time, id string) string {
+	return strconv.FormatInt(at.UTC().UnixNano(), 10) + ":" + id
+}
+
+func decodeRunCursor(cur string) (time.Time, string, error) {
+	i := strings.IndexByte(cur, ':')
+	if i < 1 || i == len(cur)-1 {
+		return time.Time{}, "", fmt.Errorf("invalid cursor")
+	}
+	ns, err := strconv.ParseInt(cur[:i], 10, 64)
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("invalid cursor timestamp")
+	}
+	return time.Unix(0, ns).UTC(), cur[i+1:], nil
 }
 
 func (r *WorkflowRunRepo) ListNodeRuns(ctx context.Context, runID string) ([]NodeRun, error) {

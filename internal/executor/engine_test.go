@@ -2,6 +2,7 @@ package executor_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -307,5 +308,118 @@ func TestEngine_noErrorEdgeStillFailsRun(t *testing.T) {
 	runStatus, _ := state.RunStatus()
 	if runStatus != "failed" {
 		t.Errorf("status: %s", runStatus)
+	}
+}
+
+// fakeRunStore is a minimal in-memory RunStore used by the RunFromReplay
+// test. It captures what the engine would have written so the test can
+// assert on the new run's wiring (parent link, payload clone) without
+// touching Postgres.
+type fakeRunStore struct {
+	wfDef       *executor.Workflow
+	wfVersion   int
+	parentRunID string
+	parentPay   []byte
+
+	inserts []executor.InsertRunParams
+	persist struct {
+		runID   string
+		status  string
+		errMsg  string
+		called  bool
+		started time.Time
+		ended   time.Time
+	}
+}
+
+func (f *fakeRunStore) LoadWorkflowForRun(_ context.Context, _ string) (int, *executor.Workflow, error) {
+	return f.wfVersion, f.wfDef, nil
+}
+
+func (f *fakeRunStore) InsertRun(_ context.Context, p executor.InsertRunParams) error {
+	f.inserts = append(f.inserts, p)
+	return nil
+}
+
+func (f *fakeRunStore) PersistRun(_ context.Context, runID string, _ *executor.Workflow, _ *executor.RunState,
+	status, errMsg string, started, ended time.Time) error {
+	f.persist.called = true
+	f.persist.runID = runID
+	f.persist.status = status
+	f.persist.errMsg = errMsg
+	f.persist.started = started
+	f.persist.ended = ended
+	return nil
+}
+
+func (f *fakeRunStore) GetTriggerPayload(_ context.Context, runID string) (json.RawMessage, error) {
+	if runID != f.parentRunID {
+		return nil, errors.New("unknown parent")
+	}
+	return json.RawMessage(f.parentPay), nil
+}
+
+func TestEngine_RunFromReplay_linksParentAndClonesPayload(t *testing.T) {
+	reg := registry.New()
+	reg.Register("core.set", &recordingExec{out: map[string]any{"ok": true}})
+
+	wf := &executor.Workflow{
+		Nodes: []executor.Node{
+			{ID: "n1", Tool: "core.set", Params: map[string]any{"values": map[string]any{}}},
+		},
+	}
+	store := &fakeRunStore{
+		wfDef:       wf,
+		wfVersion:   3,
+		parentRunID: "run_parent",
+		parentPay:   []byte(`{"hello":"world"}`),
+	}
+
+	eng := executor.NewEngine(reg,
+		executor.WithRunStore(store),
+		executor.WithRunIDGenerator(func() string { return "run_replay_1" }),
+	)
+
+	newID, err := eng.RunFromReplay(context.Background(), "wf_abc", "run_parent",
+		map[string]any{"hello": "world"})
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if newID != "run_replay_1" {
+		t.Fatalf("new run id: %q", newID)
+	}
+
+	if len(store.inserts) != 1 {
+		t.Fatalf("expected 1 insert, got %d", len(store.inserts))
+	}
+	got := store.inserts[0]
+	if got.ID != "run_replay_1" {
+		t.Errorf("inserted id: %q", got.ID)
+	}
+	if got.WorkflowID != "wf_abc" {
+		t.Errorf("workflow id: %q", got.WorkflowID)
+	}
+	if got.WorkflowVersion != 3 {
+		t.Errorf("version: %d", got.WorkflowVersion)
+	}
+	if got.TriggerKind != "replay" {
+		t.Errorf("trigger kind: %q", got.TriggerKind)
+	}
+	if got.ParentRunID == nil || *got.ParentRunID != "run_parent" {
+		t.Errorf("parent run id: %v", got.ParentRunID)
+	}
+	if string(got.TriggerPayload) != `{"hello":"world"}` {
+		t.Errorf("payload: %s", string(got.TriggerPayload))
+	}
+	if !store.persist.called || store.persist.status != "succeeded" {
+		t.Errorf("persist not called or wrong status: %+v", store.persist)
+	}
+}
+
+func TestEngine_RunFromReplay_requiresRunStore(t *testing.T) {
+	reg := registry.New()
+	eng := executor.NewEngine(reg)
+	if _, err := eng.RunFromReplay(context.Background(), "wf", "run", nil); !errors.Is(err, executor.ErrNoRunStore) {
+		t.Fatalf("expected ErrNoRunStore, got %v", err)
 	}
 }

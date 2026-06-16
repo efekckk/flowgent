@@ -33,6 +33,7 @@ type Deps struct {
 	ChatMessages  *storage.ChatMessageRepo
 	Credentials   *storage.CredentialRepo
 	Triggers      *storage.TriggerRepo
+	RunLogs       *storage.RunLogRepo
 	Engine        *executor.Engine
 	Agent         *agent.Agent
 	Scheduler     *scheduler.Scheduler

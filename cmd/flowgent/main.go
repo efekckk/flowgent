@@ -14,6 +14,7 @@ import (
 	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/crypto"
 	"github.com/efekckk/flowgent/internal/executor"
+	"github.com/efekckk/flowgent/internal/idgen"
 	"github.com/efekckk/flowgent/internal/logging"
 	"github.com/efekckk/flowgent/internal/provider"
 	"github.com/efekckk/flowgent/internal/registry"
@@ -120,7 +121,14 @@ func main() {
 		MaxRetries: 3,
 	})
 
-	engine := executor.NewEngine(reg, executor.WithCredentialResolver(credResolver))
+	workflowRepo := storage.NewWorkflowRepo(pg.Pool)
+	runRepo := storage.NewWorkflowRunRepo(pg.Pool)
+	runLogRepo := storage.NewRunLogRepo(pg.Pool)
+
+	engine := executor.NewEngine(reg,
+		executor.WithCredentialResolver(credResolver),
+		executor.WithRunStore(&engineRunStore{workflows: workflowRepo, runs: runRepo}),
+	)
 
 	triggerRepo := storage.NewTriggerRepo(pg.Pool)
 	sched := scheduler.New(stubFirer{})
@@ -136,8 +144,9 @@ func main() {
 		Users:         storage.NewUserRepo(pg.Pool),
 		Workspaces:    storage.NewWorkspaceRepo(pg.Pool),
 		Sessions:      storage.NewSessionRepo(pg.Pool),
-		Workflows:     storage.NewWorkflowRepo(pg.Pool),
-		Runs:          storage.NewWorkflowRunRepo(pg.Pool),
+		Workflows:     workflowRepo,
+		Runs:          runRepo,
+		RunLogs:       runLogRepo,
 		Engine:        engine,
 		ChatThreads:   storage.NewChatThreadRepo(pg.Pool),
 		ChatMessages:  storage.NewChatMessageRepo(pg.Pool),
@@ -242,4 +251,89 @@ func (r *llmProviderResolverImpl) ResolveForNodeCredential(_ context.Context, in
 		return nil, err
 	}
 	return r.providerReg.ForCredential(credType, encoded)
+}
+
+// engineRunStore adapts the storage repos to executor.RunStore. It is the
+// production hand-off point between the engine's RunFromReplay path and
+// the workflow_runs / node_runs tables. The viewer's other endpoints
+// (list/get/logs) talk to the repos directly; only replay needs this
+// indirection because the engine creates the row itself.
+type engineRunStore struct {
+	workflows *storage.WorkflowRepo
+	runs      *storage.WorkflowRunRepo
+}
+
+func (s *engineRunStore) LoadWorkflowForRun(ctx context.Context, workflowID string) (int, *executor.Workflow, error) {
+	wf, err := s.workflows.Get(ctx, workflowID)
+	if err != nil {
+		return 0, nil, err
+	}
+	ver, err := s.workflows.GetVersion(ctx, wf.ID, wf.CurrentVersion)
+	if err != nil {
+		return 0, nil, err
+	}
+	var def executor.Workflow
+	if err := json.Unmarshal(ver.Definition, &def); err != nil {
+		return 0, nil, fmt.Errorf("parse definition: %w", err)
+	}
+	return wf.CurrentVersion, &def, nil
+}
+
+func (s *engineRunStore) InsertRun(ctx context.Context, p executor.InsertRunParams) error {
+	startedAt := p.StartedAt
+	return s.runs.NewRun(ctx, storage.WorkflowRun{
+		ID:              p.ID,
+		WorkflowID:      p.WorkflowID,
+		WorkflowVersion: p.WorkflowVersion,
+		Status:          "running",
+		TriggerKind:     p.TriggerKind,
+		TriggerPayload:  p.TriggerPayload,
+		ParentRunID:     p.ParentRunID,
+		StartedAt:       &startedAt,
+	})
+}
+
+func (s *engineRunStore) PersistRun(ctx context.Context, runID string, wf *executor.Workflow, state *executor.RunState,
+	status, errMsg string, startedAt, finishedAt time.Time) error {
+	for _, node := range wf.Nodes {
+		records := state.History(node.ID)
+		if len(records) == 0 {
+			st := state.Status(node.ID)
+			if st == "" {
+				st = "skipped"
+			}
+			_ = s.runs.InsertNodeRun(ctx, storage.NodeRun{
+				ID:            idgen.NewNodeRun(),
+				WorkflowRunID: runID,
+				NodeID:        node.ID,
+				Iteration:     0,
+				Status:        st,
+				Attempts:      0,
+			})
+			continue
+		}
+		inputBytes, _ := json.Marshal(state.Input(node.ID))
+		for _, rec := range records {
+			outputBytes, _ := json.Marshal(rec.Output)
+			_ = s.runs.InsertNodeRun(ctx, storage.NodeRun{
+				ID:            idgen.NewNodeRun(),
+				WorkflowRunID: runID,
+				NodeID:        node.ID,
+				Iteration:     rec.Iteration,
+				Status:        rec.Status,
+				Input:         inputBytes,
+				Output:        outputBytes,
+				Attempts:      rec.Attempts,
+			})
+		}
+	}
+	return s.runs.UpdateRunStatus(ctx, runID, status, errMsg, &startedAt, &finishedAt)
+}
+
+func (s *engineRunStore) GetTriggerPayload(ctx context.Context, runID string) (json.RawMessage, error) {
+	run, err := s.runs.Get(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	return run.TriggerPayload, nil
 }

@@ -2,11 +2,14 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/efekckk/flowgent/internal/expression"
+	"github.com/efekckk/flowgent/internal/idgen"
 	"github.com/efekckk/flowgent/internal/registry"
 )
 
@@ -21,6 +24,8 @@ type Engine struct {
 	backoff      func(attempt int) time.Duration
 	maxParallel  int
 	credResolver CredentialResolver
+	runStore     RunStore
+	idgen        func() string
 }
 
 type Option func(*Engine)
@@ -47,11 +52,22 @@ func NewEngine(reg *registry.Registry, opts ...Option) *Engine {
 		maxAttempts: 3,
 		backoff:     defaultBackoff,
 		maxParallel: 8,
+		idgen:       idgen.NewRun,
 	}
 	for _, opt := range opts {
 		opt(e)
 	}
 	return e
+}
+
+// WithRunIDGenerator overrides the generator used by RunFromReplay so tests
+// can produce deterministic ids. Defaults to idgen.NewRun.
+func WithRunIDGenerator(fn func() string) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.idgen = fn
+		}
+	}
 }
 
 func defaultBackoff(attempt int) time.Duration {
@@ -153,6 +169,76 @@ func (e *Engine) Run(ctx context.Context, wf *Workflow, opts RunOptions) (*RunSt
 
 	state.SetRunStatus("succeeded", "")
 	return state, nil
+}
+
+// ErrNoRunStore is returned by RunFromReplay when the engine was created
+// without a RunStore. Replays require persistence; production wiring must
+// pass WithRunStore.
+var ErrNoRunStore = errors.New("executor: replay requires a run store")
+
+// RunFromReplay clones the given parent run as a fresh execution. The
+// caller supplies the trigger payload (already extracted from the parent
+// or overridden by the user); the engine then:
+//
+//  1. resolves the workflow to its current definition,
+//  2. inserts a new workflow_runs row marked 'replay' with parent_run_id,
+//  3. dispatches the workflow exactly the way Run does,
+//  4. persists node_runs + the final status,
+//  5. returns the new run id.
+//
+// The new run's trigger_kind is "replay" so the run history view can
+// distinguish replays at a glance without losing the original trigger
+// metadata, which is preserved on the parent row.
+func (e *Engine) RunFromReplay(ctx context.Context, workflowID, parentRunID string, payload map[string]any) (string, error) {
+	if e.runStore == nil {
+		return "", ErrNoRunStore
+	}
+
+	version, wf, err := e.runStore.LoadWorkflowForRun(ctx, workflowID)
+	if err != nil {
+		return "", fmt.Errorf("executor: replay load workflow: %w", err)
+	}
+	if wf == nil {
+		return "", fmt.Errorf("executor: replay: workflow %q has no definition", workflowID)
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("executor: replay marshal payload: %w", err)
+	}
+	if len(payloadBytes) == 0 || string(payloadBytes) == "null" {
+		payloadBytes = json.RawMessage(`{}`)
+	}
+
+	runID := e.idgen()
+	startedAt := time.Now().UTC()
+	parent := parentRunID
+	if err := e.runStore.InsertRun(ctx, InsertRunParams{
+		ID:              runID,
+		WorkflowID:      workflowID,
+		WorkflowVersion: version,
+		TriggerKind:     "replay",
+		TriggerPayload:  payloadBytes,
+		ParentRunID:     &parent,
+		StartedAt:       startedAt,
+	}); err != nil {
+		return "", fmt.Errorf("executor: replay insert run: %w", err)
+	}
+
+	state, runErr := e.Run(ctx, wf, RunOptions{
+		TriggerKind:    "replay",
+		TriggerPayload: payload,
+	})
+	finishedAt := time.Now().UTC()
+	status, statusErr := state.RunStatus()
+	errMsg := statusErr
+	if runErr != nil && errMsg == "" {
+		errMsg = runErr.Error()
+	}
+	if err := e.runStore.PersistRun(ctx, runID, wf, state, status, errMsg, startedAt, finishedAt); err != nil {
+		return runID, fmt.Errorf("executor: replay persist: %w", err)
+	}
+	return runID, nil
 }
 
 func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, state *RunState, opts RunOptions) (string, error) {
