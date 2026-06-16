@@ -1,0 +1,24 @@
+{
+  "slug": "email.smtp_send",
+  "version": "1.0.0",
+  "display_name": "Email: Send via SMTP",
+  "category": "communication",
+  "description": "Sends an email via SMTP with PLAIN auth. Requires a credential of type smtp with `host`, `port`, `username`, `password`, `from` fields.",
+  "credentials": { "type": "smtp", "required": true },
+  "inputs": {
+    "type": "object",
+    "required": ["to", "subject", "body"],
+    "properties": {
+      "to":      { "type": "string", "description": "Comma-separated recipient addresses." },
+      "subject": { "type": "string" },
+      "body":    { "type": "string", "description": "Plain-text body." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "sent": { "type": "boolean" },
+      "to":   { "type": "string" }
+    }
+  }
+}
