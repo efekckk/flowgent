@@ -2,6 +2,7 @@ import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
   CredentialDTO, Trigger, TriggerList, ListRunsResponse,
+  GetRunResponse,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -113,6 +114,10 @@ export const api = {
     const qs = params.toString();
     return request<ListRunsResponse>(`/v1/workflows/${workflowId}/runs${qs ? '?' + qs : ''}`);
   },
+  getRun: (id: string) =>
+    request<GetRunResponse>(`/v1/runs/${id}`),
+  replayRun: (id: string) =>
+    request<{ run_id: string }>(`/v1/runs/${id}/replay`, { method: 'POST' }),
 };
 
 export { APIError };

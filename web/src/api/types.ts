@@ -128,3 +128,34 @@ export interface ListRunsResponse {
   items: WorkflowRun[];
   next_cursor: string;
 }
+
+// Per-node execution record. The backend serializes node_runs alongside a
+// run; field names mirror nodeRunDTO in internal/api/run_handler.go.
+export interface NodeRun {
+  id: string;
+  node_id: string;
+  iteration?: number;
+  status: string;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
+  attempts?: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface GetRunResponse {
+  run: WorkflowRun;
+  nodes: NodeRun[];
+}
+
+// SSE frame body for the run log stream (GET /v1/runs/:id/stream, event: log).
+export interface RunLogEvent {
+  id?: number;
+  run_id: string;
+  node_id?: string;
+  level: string;
+  message: string;
+  at: string;
+}
