@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"testing"
+
+	"github.com/efekckk/flowgent/internal/executor"
 )
 
 type fakeSender struct {
@@ -162,5 +165,145 @@ func TestExecute_senderErrorPropagates(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "pw") {
 		t.Errorf("password leaked into error: %v", err)
+	}
+}
+
+func TestExecute_subjectControlCharsRejected(t *testing.T) {
+	fs := &fakeSender{}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to":           "a@x.com",
+		"subject":      "hi\r\nBcc: attacker@evil.com",
+		"body":         "y",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+	if fs.addr != "" {
+		t.Errorf("send should not have been attempted: %+v", fs)
+	}
+}
+
+func TestExecute_recipientControlCharsRejected(t *testing.T) {
+	fs := &fakeSender{}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to":           "alice@x.com,bob@x.com\r\nBcc: attacker@evil.com",
+		"subject":      "s",
+		"body":         "b",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+}
+
+func TestExecute_fromControlCharsRejected(t *testing.T) {
+	fs := &fakeSender{}
+	cred := smtpCred()
+	cred["from"] = "bot@x.com\r\nReply-To: attacker@evil.com"
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": cred,
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+}
+
+func TestExecute_textprotoErrorClassifiedTransient(t *testing.T) {
+	fs := &fakeSender{err: &textproto.Error{Code: 421, Msg: "service not available"}}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrTransient5xx) {
+		t.Fatalf("expected ErrTransient5xx, got %v", err)
+	}
+}
+
+func TestExecute_textprotoErrorClassifiedAuth(t *testing.T) {
+	fs := &fakeSender{err: &textproto.Error{Code: 535, Msg: "authentication failed"}}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrAuthFailed) {
+		t.Fatalf("expected ErrAuthFailed, got %v", err)
+	}
+}
+
+func TestExecute_textprotoErrorClassified5xxValidation(t *testing.T) {
+	fs := &fakeSender{err: &textproto.Error{Code: 550, Msg: "mailbox unavailable"}}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+}
+
+func TestExecute_networkErrorClassifiedTransient(t *testing.T) {
+	fs := &fakeSender{err: errors.New("dial tcp: connection refused")}
+	e := newWithSender(fs)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": smtpCred(),
+	})
+	if err == nil || !errors.Is(err, executor.ErrTransient5xx) {
+		t.Fatalf("expected ErrTransient5xx, got %v", err)
+	}
+}
+
+func TestExecute_invalidPortRejected(t *testing.T) {
+	e := New()
+	cred := smtpCred()
+	cred["port"] = "0"
+	_, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": cred,
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation for port=0, got %v", err)
+	}
+
+	cred["port"] = "70000"
+	_, err = e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": cred,
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation for port=70000, got %v", err)
+	}
+
+	cred["port"] = "abc"
+	_, err = e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com", "subject": "s", "body": "b",
+		"__credential": cred,
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation for port=abc, got %v", err)
+	}
+}
+
+func TestExecute_outputIncludesRecipients(t *testing.T) {
+	fs := &fakeSender{}
+	e := newWithSender(fs)
+	res, err := e.Execute(context.Background(), map[string]any{
+		"to": "a@x.com, b@x.com", "subject": "s", "body": "b",
+		"__credential": smtpCred(),
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	recipients, ok := res.Output["recipients"].([]string)
+	if !ok || len(recipients) != 2 {
+		t.Fatalf("recipients: %+v", res.Output["recipients"])
 	}
 }
