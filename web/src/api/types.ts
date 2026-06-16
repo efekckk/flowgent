@@ -19,6 +19,20 @@ export interface LoginResponse {
 
 export interface MeResponse {
   user: User;
+  workspace?: Workspace;
+}
+
+export interface SearchHit {
+  run_id: string;
+  workflow_id: string;
+  node_id: string;
+  message: string;
+  snippet: string;
+  at: string;
+}
+
+export interface SearchResponse {
+  hits: SearchHit[];
 }
 
 export interface WorkflowNode {
@@ -96,4 +110,66 @@ export interface CredentialDTO {
 
 export interface CredentialList {
   items: CredentialDTO[];
+}
+
+export interface Trigger {
+  id: string;
+  workflow_id: string;
+  kind: 'cron' | 'webhook';
+  config: Record<string, unknown>;
+  enabled: boolean;
+  webhook_url?: string;
+}
+
+export interface TriggerList {
+  items: Trigger[];
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  status: string;
+  trigger_id?: string | null;
+  trigger_kind?: string | null;
+  parent_run_id?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListRunsResponse {
+  items: WorkflowRun[];
+  next_cursor: string;
+}
+
+// Per-node execution record. The backend serializes node_runs alongside a
+// run; field names mirror nodeRunDTO in internal/api/run_handler.go.
+export interface NodeRun {
+  id: string;
+  node_id: string;
+  iteration?: number;
+  status: string;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
+  attempts?: number;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface GetRunResponse {
+  run: WorkflowRun;
+  nodes: NodeRun[];
+}
+
+// SSE frame body for the run log stream (GET /v1/runs/:id/stream, event: log).
+export interface RunLogEvent {
+  id?: number;
+  run_id: string;
+  node_id?: string;
+  level: string;
+  message: string;
+  at: string;
 }

@@ -204,6 +204,11 @@ func TestMe_returnsCurrentUserWhenSessionValid(t *testing.T) {
 	if !bytes.Contains(w2.Body.Bytes(), []byte("me@example.com")) {
 		t.Errorf("body missing email: %s", w2.Body.String())
 	}
+	// /v1/me must surface the user's primary workspace so the SPA can call
+	// workspace-scoped endpoints (e.g. run log search) on first paint.
+	if !bytes.Contains(w2.Body.Bytes(), []byte(`"workspace"`)) {
+		t.Errorf("body missing workspace: %s", w2.Body.String())
+	}
 }
 
 func TestMe_returns401WithoutSession(t *testing.T) {

@@ -1,7 +1,8 @@
 import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
-  CredentialDTO,
+  CredentialDTO, Trigger, TriggerList, ListRunsResponse,
+  GetRunResponse, SearchResponse,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -75,6 +76,54 @@ export const api = {
     }),
   deleteCredential: (id: string) =>
     request<void>(`/v1/credentials/${id}`, { method: 'DELETE' }),
+
+  // Triggers
+  listTriggers: (workflowId: string) =>
+    request<TriggerList>(`/v1/workflows/${workflowId}/triggers`),
+  createTrigger: (
+    workflowId: string,
+    kind: 'cron' | 'webhook',
+    config: Record<string, unknown>,
+  ) =>
+    request<Trigger>(`/v1/workflows/${workflowId}/triggers`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, config }),
+    }),
+  updateTrigger: (
+    id: string,
+    patch: { enabled?: boolean; config?: Record<string, unknown> },
+  ) =>
+    request<void>(`/v1/triggers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteTrigger: (id: string) =>
+    request<void>(`/v1/triggers/${id}`, { method: 'DELETE' }),
+
+  // Runs
+  listRuns: (
+    workflowId: string,
+    opts: { status?: string; from?: string; to?: string; limit?: number; cursor?: string } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.status) params.set('status', opts.status);
+    if (opts.from) params.set('from', opts.from);
+    if (opts.to) params.set('to', opts.to);
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.cursor) params.set('cursor', opts.cursor);
+    const qs = params.toString();
+    return request<ListRunsResponse>(`/v1/workflows/${workflowId}/runs${qs ? '?' + qs : ''}`);
+  },
+  getRun: (id: string) =>
+    request<GetRunResponse>(`/v1/runs/${id}`),
+  replayRun: (id: string) =>
+    request<{ run_id: string }>(`/v1/runs/${id}/replay`, { method: 'POST' }),
+
+  // Search
+  searchRunLogs: (wsID: string, q: string, limit = 20) =>
+    request<SearchResponse>(
+      `/v1/workspaces/${wsID}/runs/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
 };
 
 export { APIError };
