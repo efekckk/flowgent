@@ -2,7 +2,7 @@
 
 AI-first workflow automation. You describe what you want in plain language, AI builds the workflow.
 
-> Status: pre-alpha. **Credentials + LLM node (M6) complete.** See `docs/plans/` for the next milestone.
+> Status: pre-alpha. **Integrations wave 1 (M7) complete.** See `docs/plans/` for the next milestone.
 
 ## Run locally
 
@@ -19,7 +19,7 @@ export FLOWGENT_DEFAULT_PROVIDER="openai"
 go run ./cmd/flowgent
 ```
 
-Open `http://localhost:8080`. Sign up, add an OpenAI or Anthropic key under **Credentials**, create a workflow, and chat with the assistant. Reference the credential in your prompt ("Use credential openai_default for the LLM node") and the assistant will wire it into the proposed workflow.
+Open `http://localhost:8080`. Sign up, add credentials (OpenAI/Anthropic for the LLM; Slack incoming-webhook URL, Telegram bot token, SMTP creds, or a Postgres DSN for outputs), and describe a workflow ("Every time someone posts on /webhook, summarise with GPT-4o, then ping #general on Slack"). The agent wires it up; click Run.
 
 ## Test
 
@@ -51,22 +51,33 @@ Everything else under `/` is served by the React SPA.
 
 ## Available tools
 
-| Slug          | Category       | What it does |
-|---------------|----------------|--------------|
-| http.request  | core           | HTTP GET/POST/etc. with classified retry errors |
-| core.if       | control        | Compares two values, routes to true/false port  |
-| core.set      | transform/data | Emits its `values` map as the node output       |
-| core.wait     | control        | Sleeps N ms, honours ctx cancellation           |
-| core.merge    | control        | Combines upstream outputs (append/merge/first)  |
-| core.loop     | control        | Iterates over an array, runs body per item      |
-| core.code     | transform/code | Sandboxed JS snippet (goja, CPU+mem-limited)    |
-| llm.chat      | ai             | Calls a chat provider via a workspace credential|
+| Slug                   | Category       | What it does |
+|------------------------|----------------|--------------|
+| http.request           | core           | HTTP GET/POST/etc. with classified retry errors |
+| core.if                | control        | Compares two values, routes to true/false port  |
+| core.set               | transform/data | Emits its `values` map as the node output       |
+| core.wait              | control        | Sleeps N ms, honours ctx cancellation           |
+| core.merge             | control        | Combines upstream outputs (append/merge/first)  |
+| core.loop              | control        | Iterates over an array, runs body per item      |
+| core.code              | transform/code | Sandboxed JS snippet (goja, CPU+mem-limited)    |
+| llm.chat               | ai             | Calls a chat provider via a workspace credential|
+| slack.send_message     | communication  | Posts to a Slack incoming webhook               |
+| telegram.send_message  | communication  | Sends via Telegram Bot API                      |
+| email.smtp_send        | communication  | SMTP PLAIN auth send via Go stdlib              |
+| postgres.query         | data           | Parameterised SQL query via pgx                 |
 
-## Credentials
+## Credential types
 
-API keys live in the `credentials` table, encrypted at rest with AES-256-GCM. The master key comes from `FLOWGENT_CRED_KEY` (base64-encoded 32 raw bytes). Workflows reference a credential by id; the engine decrypts the secret just before invoking the tool and injects it as `__credential` in the node input. Plaintext keys never leave the server's process memory.
+| Type            | Fields                                          | Used by                |
+|-----------------|-------------------------------------------------|------------------------|
+| openai          | api_key                                         | llm.chat               |
+| anthropic       | api_key                                         | llm.chat               |
+| slack_webhook   | url                                             | slack.send_message     |
+| telegram_bot    | bot_token                                       | telegram.send_message  |
+| smtp            | host, port, username, password, from            | email.smtp_send        |
+| postgres        | dsn                                             | postgres.query         |
 
-Supported credential types in M6: **openai**, **anthropic**. OAuth-backed types (Slack, Google, Twilio) ship in v1.x.
+All credentials are encrypted at rest with AES-256-GCM (master key from `FLOWGENT_CRED_KEY`). Plaintext never leaves process memory.
 
 ## Engine capabilities
 
@@ -79,7 +90,7 @@ Supported credential types in M6: **openai**, **anthropic**. OAuth-backed types 
 
 ## AI agent
 
-Send a chat message via the UI or `POST /v1/workflows/:id/chat`. The agent validates each proposal (tool slugs known, edge targets valid, no cycles) and re-prompts the model up to 3 times if validation fails. Supported providers: **OpenAI** (`FLOWGENT_OPENAI_KEY` for agent fallback) and **Anthropic** (`FLOWGENT_ANTHROPIC_KEY`). Workflows reference credentials by id; the env fallback is only used by the chat endpoint when no per-workflow credential is configured.
+Send a chat message via the UI or `POST /v1/workflows/:id/chat`. The agent validates each proposal (tool slugs known, edge targets valid, no cycles) and re-prompts the model up to 3 times if validation fails. Supported providers: **OpenAI** and **Anthropic**.
 
 ## Expressions
 
@@ -87,7 +98,7 @@ Inside node params: `{{ $trigger.field }}`, `{{ $nodes.<id>.<field> }}`, `{{ $no
 
 ## Roadmap
 
-See `docs/specs/2026-06-12-flowgent-design.md` for full design. Milestone status:
+Milestone status:
 
 - [x] M1 Foundation — auth, sessions, base storage
 - [x] M2 Engine core — tool registry, expression engine, first primitive nodes
@@ -95,10 +106,12 @@ See `docs/specs/2026-06-12-flowgent-design.md` for full design. Milestone status
 - [x] M4 AI agent — provider abstraction, workflow generation loop
 - [x] M5 UI shell — React + ReactFlow + chat panel
 - [x] M6 Credentials + LLM integration — encrypted credentials store, llm.chat node
-- [ ] M7 Integrations wave 1 — Slack, Telegram, Email, Postgres, Sheets
+- [x] M7 Integrations wave 1 — Slack, Telegram, Email, Postgres
 - [ ] M8 Triggers + run viewer — cron, webhook, live log
 - [ ] M9 Polish & onboarding
 - [ ] M10 Self-host & launch
+
+> M7.1 will add Google Sheets via service-account JWT; OAuth-backed integrations (Slack OAuth bot mode, Google Workspace) target v1.x.
 
 ## License
 
