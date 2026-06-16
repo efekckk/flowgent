@@ -50,12 +50,20 @@ export default function WorkflowsPage() {
                   <h1 className="text-lg font-semibold text-slate-800">{current.name}</h1>
                   <p className="text-xs text-slate-500">Status: {current.status} · v{current.version}</p>
                 </div>
-                <Link
-                  to={`/workflows/${current.id}/triggers`}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                >
-                  🔔 Triggers
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={`/workflows/${current.id}/triggers`}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    🔔 Triggers
+                  </Link>
+                  <Link
+                    to={`/workflows/${current.id}/runs`}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    📜 Runs
+                  </Link>
+                </div>
               </header>
               <div className="flex-1 overflow-hidden">
                 {current.definition && (

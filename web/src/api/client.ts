@@ -1,7 +1,7 @@
 import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
-  CredentialDTO, Trigger, TriggerList,
+  CredentialDTO, Trigger, TriggerList, ListRunsResponse,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -98,6 +98,21 @@ export const api = {
     }),
   deleteTrigger: (id: string) =>
     request<void>(`/v1/triggers/${id}`, { method: 'DELETE' }),
+
+  // Runs
+  listRuns: (
+    workflowId: string,
+    opts: { status?: string; from?: string; to?: string; limit?: number; cursor?: string } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.status) params.set('status', opts.status);
+    if (opts.from) params.set('from', opts.from);
+    if (opts.to) params.set('to', opts.to);
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.cursor) params.set('cursor', opts.cursor);
+    const qs = params.toString();
+    return request<ListRunsResponse>(`/v1/workflows/${workflowId}/runs${qs ? '?' + qs : ''}`);
+  },
 };
 
 export { APIError };

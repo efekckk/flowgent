@@ -5,6 +5,7 @@ import WorkflowsPage from '../workflows/WorkflowsPage';
 import ProtectedRoute from './ProtectedRoute';
 import CredentialsPage from '../credentials/CredentialsPage';
 import TriggersPage from '../triggers/TriggersPage';
+import RunListPage from '../runs/RunListPage';
 
 export default function AppRouter() {
   return (
@@ -27,6 +28,10 @@ export default function AppRouter() {
         <Route
           path="/workflows/:id/triggers"
           element={<ProtectedRoute><TriggersPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/workflows/:id/runs"
+          element={<ProtectedRoute><RunListPage /></ProtectedRoute>}
         />
         <Route path="*" element={<Navigate to="/workflows" replace />} />
       </Routes>

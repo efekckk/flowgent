@@ -110,3 +110,21 @@ export interface Trigger {
 export interface TriggerList {
   items: Trigger[];
 }
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  status: string;
+  trigger_id?: string | null;
+  trigger_kind?: string | null;
+  parent_run_id?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListRunsResponse {
+  items: WorkflowRun[];
+  next_cursor: string;
+}
