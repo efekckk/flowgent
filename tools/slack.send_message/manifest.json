@@ -1,0 +1,28 @@
+{
+  "slug": "slack.send_message",
+  "version": "1.0.0",
+  "display_name": "Slack: Send Message",
+  "category": "communication",
+  "description": "Sends a message to a Slack channel via an incoming webhook URL. Requires a credential of type slack_webhook with a `url` field.",
+  "credentials": { "type": "slack_webhook", "required": true },
+  "inputs": {
+    "type": "object",
+    "required": ["text"],
+    "properties": {
+      "text": { "type": "string", "description": "Message body. Supports {{ $trigger.* }} or {{ $nodes.<id>.* }} expressions." }
+    }
+  },
+  "outputs": {
+    "type": "object",
+    "properties": {
+      "ok":     { "type": "boolean" },
+      "status": { "type": "integer" }
+    }
+  },
+  "retry": {
+    "max_attempts": 3,
+    "backoff": "exponential",
+    "base_ms": 500,
+    "retryable_errors": ["rate_limited", "transient_5xx"]
+  }
+}
