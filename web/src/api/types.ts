@@ -97,3 +97,16 @@ export interface CredentialDTO {
 export interface CredentialList {
   items: CredentialDTO[];
 }
+
+export interface Trigger {
+  id: string;
+  workflow_id: string;
+  kind: 'cron' | 'webhook';
+  config: Record<string, unknown>;
+  enabled: boolean;
+  webhook_url?: string;
+}
+
+export interface TriggerList {
+  items: Trigger[];
+}

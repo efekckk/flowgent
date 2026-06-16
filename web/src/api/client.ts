@@ -1,7 +1,7 @@
 import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
-  CredentialDTO,
+  CredentialDTO, Trigger, TriggerList,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -75,6 +75,29 @@ export const api = {
     }),
   deleteCredential: (id: string) =>
     request<void>(`/v1/credentials/${id}`, { method: 'DELETE' }),
+
+  // Triggers
+  listTriggers: (workflowId: string) =>
+    request<TriggerList>(`/v1/workflows/${workflowId}/triggers`),
+  createTrigger: (
+    workflowId: string,
+    kind: 'cron' | 'webhook',
+    config: Record<string, unknown>,
+  ) =>
+    request<Trigger>(`/v1/workflows/${workflowId}/triggers`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, config }),
+    }),
+  updateTrigger: (
+    id: string,
+    patch: { enabled?: boolean; config?: Record<string, unknown> },
+  ) =>
+    request<void>(`/v1/triggers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteTrigger: (id: string) =>
+    request<void>(`/v1/triggers/${id}`, { method: 'DELETE' }),
 };
 
 export { APIError };

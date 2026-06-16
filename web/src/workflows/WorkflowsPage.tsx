@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import WorkflowList from './WorkflowList';
 import Canvas from '../canvas/Canvas';
@@ -45,9 +45,17 @@ export default function WorkflowsPage() {
         {id && current && (
           <>
             <div className="relative flex flex-1 flex-col">
-              <header className="border-b border-slate-200 bg-white px-4 py-3">
-                <h1 className="text-lg font-semibold text-slate-800">{current.name}</h1>
-                <p className="text-xs text-slate-500">Status: {current.status} · v{current.version}</p>
+              <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+                <div>
+                  <h1 className="text-lg font-semibold text-slate-800">{current.name}</h1>
+                  <p className="text-xs text-slate-500">Status: {current.status} · v{current.version}</p>
+                </div>
+                <Link
+                  to={`/workflows/${current.id}/triggers`}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  🔔 Triggers
+                </Link>
               </header>
               <div className="flex-1 overflow-hidden">
                 {current.definition && (

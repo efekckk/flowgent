@@ -4,6 +4,7 @@ import SignupPage from '../auth/SignupPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import ProtectedRoute from './ProtectedRoute';
 import CredentialsPage from '../credentials/CredentialsPage';
+import TriggersPage from '../triggers/TriggersPage';
 
 export default function AppRouter() {
   return (
@@ -22,6 +23,10 @@ export default function AppRouter() {
         <Route
           path="/credentials"
           element={<ProtectedRoute><CredentialsPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/workflows/:id/triggers"
+          element={<ProtectedRoute><TriggersPage /></ProtectedRoute>}
         />
         <Route path="*" element={<Navigate to="/workflows" replace />} />
       </Routes>
