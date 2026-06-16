@@ -16,10 +16,11 @@ type RunOptions struct {
 }
 
 type Engine struct {
-	registry    *registry.Registry
-	maxAttempts int
-	backoff     func(attempt int) time.Duration
-	maxParallel int
+	registry     *registry.Registry
+	maxAttempts  int
+	backoff      func(attempt int) time.Duration
+	maxParallel  int
+	credResolver CredentialResolver
 }
 
 type Option func(*Engine)
@@ -184,6 +185,22 @@ func (e *Engine) executeNode(ctx context.Context, wf *Workflow, node *Node, stat
 		return "", err
 	}
 	state.SetInput(node.ID, resolved)
+
+	if node.Credential != "" {
+		if e.credResolver == nil {
+			state.SetStatus(node.ID, "failed")
+			err := fmt.Errorf("executor: node %q references credential %q but no resolver configured", node.ID, node.Credential)
+			state.SetRunStatus("failed", err.Error())
+			return "", err
+		}
+		secret, err := e.credResolver.Resolve(ctx, node.Credential)
+		if err != nil {
+			state.SetStatus(node.ID, "failed")
+			state.SetRunStatus("failed", err.Error())
+			return "", fmt.Errorf("executor: resolve credential for node %q: %w", node.ID, err)
+		}
+		resolved["__credential"] = secret
+	}
 
 	var res registry.ExecuteResult
 	var execErr error
