@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 )
@@ -42,5 +43,27 @@ func (r *Registry) For(slug string) (ChatProvider, error) {
 		return NewAnthropic(r.anthropicBaseURL, key), nil
 	default:
 		return nil, fmt.Errorf("provider: unknown provider %q", slug)
+	}
+}
+
+// ForCredential constructs a ChatProvider from a decrypted credential
+// payload. The decrypted JSON is expected to contain at least an "api_key"
+// field for OpenAI / Anthropic types.
+func (r *Registry) ForCredential(credType string, decrypted []byte) (ChatProvider, error) {
+	var secret map[string]any
+	if err := json.Unmarshal(decrypted, &secret); err != nil {
+		return nil, fmt.Errorf("provider: parse credential payload: %w", err)
+	}
+	apiKey, _ := secret["api_key"].(string)
+	if apiKey == "" {
+		return nil, fmt.Errorf("provider: credential payload missing \"api_key\"")
+	}
+	switch credType {
+	case "openai":
+		return NewOpenAI(r.openAIBaseURL, apiKey), nil
+	case "anthropic":
+		return NewAnthropic(r.anthropicBaseURL, apiKey), nil
+	default:
+		return nil, fmt.Errorf("provider: unknown credential type %q", credType)
 	}
 }
