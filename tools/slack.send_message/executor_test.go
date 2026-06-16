@@ -13,10 +13,15 @@ import (
 )
 
 func TestExecute_postsMessageToWebhook(t *testing.T) {
-	var receivedBody map[string]any
+	gotBody := make(chan map[string]any, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Errorf("content-type: %q", got)
+		}
 		b, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(b, &receivedBody)
+		var parsed map[string]any
+		_ = json.Unmarshal(b, &parsed)
+		gotBody <- parsed
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -30,8 +35,13 @@ func TestExecute_postsMessageToWebhook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if receivedBody["text"] != "Hello from Flowgent" {
-		t.Errorf("body: %+v", receivedBody)
+	select {
+	case body := <-gotBody:
+		if body["text"] != "Hello from Flowgent" {
+			t.Errorf("body: %+v", body)
+		}
+	default:
+		t.Fatalf("handler never received request")
 	}
 	if res.Output["ok"] != true || res.Output["status"] != 200 {
 		t.Errorf("output: %+v", res.Output)
@@ -85,5 +95,21 @@ func TestExecute_5xxIsTransient(t *testing.T) {
 	})
 	if err == nil || !errors.Is(err, executor.ErrTransient5xx) {
 		t.Fatalf("expected ErrTransient5xx, got %v", err)
+	}
+}
+
+func TestExecute_403IsAuthFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"text":         "hi",
+		"__credential": map[string]any{"url": srv.URL, "__type": "slack_webhook"},
+	})
+	if err == nil || !errors.Is(err, executor.ErrAuthFailed) {
+		t.Fatalf("expected ErrAuthFailed, got %v", err)
 	}
 }

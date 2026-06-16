@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -40,19 +41,27 @@ func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.
 	body, _ := json.Marshal(map[string]any{"text": text})
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: build request: %w", err)
+		// The webhook URL is the secret credential — never include the
+		// underlying error text, which embeds the URL via *url.Error.
+		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: build request failed")
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: http: %w", err)
+		// Same redaction as above: *url.Error.Error() leaks the webhook URL.
+		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: http transport error")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
 		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: http %d: %w", resp.StatusCode, executor.ErrRateLimited)
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: http %d: %w", resp.StatusCode, executor.ErrAuthFailed)
 	case resp.StatusCode >= 500:
 		return registry.ExecuteResult{}, fmt.Errorf("slack.send_message: http %d: %w", resp.StatusCode, executor.ErrTransient5xx)
 	case resp.StatusCode >= 400:
