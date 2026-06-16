@@ -44,6 +44,11 @@ type Deps struct {
 	CookieDomain  string
 	CookieSecure  bool
 	PublicBaseURL string
+	// WebhookHandler, when non-nil, is mounted at POST
+	// /webhooks/{trigger_id}/{token} OUTSIDE the authed /v1 group: external
+	// systems (Stripe, GitHub, etc.) hit it directly and authenticate via
+	// the URL token + optional HMAC signature on the body.
+	WebhookHandler http.Handler
 }
 
 type signupRequest struct {

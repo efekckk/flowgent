@@ -38,6 +38,13 @@ func NewServer(d Deps) http.Handler {
 		sub.Post("/runs/{id}/replay", d.handleReplayRun)
 		sub.Get("/workspaces/{wsID}/runs/search", d.handleSearchRunLogs)
 	})
+	// Webhook ingress: unauthenticated by design — external services hit
+	// /webhooks/{trigger_id}/{token} directly and authenticate via the
+	// URL token plus an optional HMAC signature on the body. Mounted
+	// outside the /v1 group so the session middleware does not run.
+	if d.WebhookHandler != nil {
+		r.Post("/webhooks/{trigger_id}/{token}", d.WebhookHandler.ServeHTTP)
+	}
 	// Static SPA at root — must be last so existing /v1 and /health win.
 	r.Mount("/", webfs.Handler())
 	return r

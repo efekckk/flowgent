@@ -21,6 +21,7 @@ import (
 	"github.com/efekckk/flowgent/internal/runlog"
 	"github.com/efekckk/flowgent/internal/scheduler"
 	"github.com/efekckk/flowgent/internal/storage"
+	"github.com/efekckk/flowgent/internal/webhook"
 
 	corecode "github.com/efekckk/flowgent/tools/core.code"
 	coreif "github.com/efekckk/flowgent/tools/core.if"
@@ -136,7 +137,13 @@ func main() {
 	)
 
 	triggerRepo := storage.NewTriggerRepo(pg.Pool)
-	sched := scheduler.New(stubFirer{})
+	firer := &productionFirer{
+		triggers:  triggerRepo,
+		workflows: workflowRepo,
+		runs:      runRepo,
+		engine:    engine,
+	}
+	sched := scheduler.New(firer)
 	loadCtx, loadCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := sched.LoadFromDB(loadCtx, triggerLoader{repo: triggerRepo}); err != nil {
 		logger.Warn("scheduler load failed; cron triggers will not fire until next restart", "err", err)
@@ -144,6 +151,8 @@ func main() {
 	loadCancel()
 	sched.Start()
 	defer sched.Stop()
+
+	webhookHandler := webhook.NewHandler(&triggerResolver{repo: triggerRepo}, firer)
 
 	srv := api.NewServer(api.Deps{
 		Users:         storage.NewUserRepo(pg.Pool),
@@ -162,9 +171,10 @@ func main() {
 		Throttle:      auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
 		CookieDomain:  envOr("SESSION_COOKIE_DOMAIN", "localhost"),
 		CookieSecure:  envOr("SESSION_COOKIE_SECURE", "false") == "true",
-		Credentials:   credRepo,
-		CredentialKey: masterKey,
-		PublicBaseURL: envOr("FLOWGENT_PUBLIC_BASE_URL", "http://localhost:8080"),
+		Credentials:    credRepo,
+		CredentialKey:  masterKey,
+		PublicBaseURL:  envOr("FLOWGENT_PUBLIC_BASE_URL", "http://localhost:8080"),
+		WebhookHandler: webhookHandler,
 	})
 
 	addr := ":" + envOr("PORT", "8080")
@@ -209,15 +219,6 @@ type llmProviderResolverImpl struct {
 	repo        *storage.CredentialRepo
 	key         []byte
 	providerReg *provider.Registry
-}
-
-// stubFirer is a no-op Firer used until the real trigger dispatcher is wired
-// in. It keeps the scheduler operational so cron expressions are validated
-// and registered, but no workflow run is started when a tick fires.
-type stubFirer struct{}
-
-func (stubFirer) FireTrigger(_ context.Context, _, _ string, _ map[string]any) error {
-	return nil
 }
 
 // triggerLoader adapts the trigger repo to the scheduler.Loader contract. The
