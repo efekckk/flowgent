@@ -167,3 +167,59 @@ func TestExecute_5xxIsTransient(t *testing.T) {
 		t.Fatalf("expected ErrTransient5xx, got %v", err)
 	}
 }
+
+func TestExecute_okFalseIsValidation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"description":"Bad Request: chat not found"}`))
+	}))
+	defer srv.Close()
+
+	e := newWithBase(srv.URL)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"chat_id": "1", "text": "x",
+		"__credential": map[string]any{"bot_token": "t", "__type": "telegram_bot"},
+	})
+	if err == nil || !errors.Is(err, executor.ErrValidation) {
+		t.Fatalf("expected ErrValidation, got %v", err)
+	}
+}
+
+func TestExecute_numericChatIDIsCoerced(t *testing.T) {
+	got := make(chan map[string]any, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var parsed map[string]any
+		_ = json.Unmarshal(b, &parsed)
+		got <- parsed
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
+	}))
+	defer srv.Close()
+
+	e := newWithBase(srv.URL)
+	_, err := e.Execute(context.Background(), map[string]any{
+		"chat_id":      float64(98765), // mimics JSON-decoded numeric chat id
+		"text":         "x",
+		"__credential": map[string]any{"bot_token": "t", "__type": "telegram_bot"},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	body := <-got
+	if body["chat_id"] != "98765" {
+		t.Errorf("chat_id forwarded as: %+v", body["chat_id"])
+	}
+}
+
+func TestExecute_invalidChatIDTypeIsError(t *testing.T) {
+	e := New()
+	_, err := e.Execute(context.Background(), map[string]any{
+		"chat_id":      []any{"not", "a", "chat"},
+		"text":         "x",
+		"__credential": map[string]any{"bot_token": "t", "__type": "telegram_bot"},
+	})
+	if err == nil {
+		t.Fatalf("expected error for slice chat_id, got nil")
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/efekckk/flowgent/internal/executor"
@@ -32,9 +33,9 @@ func newWithBase(base string) *Executor {
 }
 
 func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.ExecuteResult, error) {
-	chatID, _ := input["chat_id"].(string)
-	if chatID == "" {
-		return registry.ExecuteResult{}, fmt.Errorf("telegram.send_message: missing \"chat_id\"")
+	chatID, err := stringifyChatID(input["chat_id"])
+	if err != nil {
+		return registry.ExecuteResult{}, fmt.Errorf("telegram.send_message: %w", err)
 	}
 	text, _ := input["text"].(string)
 	if text == "" {
@@ -93,6 +94,9 @@ func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return registry.ExecuteResult{}, fmt.Errorf("telegram.send_message: parse response failed")
 	}
+	if !parsed.OK {
+		return registry.ExecuteResult{}, fmt.Errorf("telegram.send_message: api rejected request: %w", executor.ErrValidation)
+	}
 
 	return registry.ExecuteResult{
 		Output: map[string]any{
@@ -101,4 +105,32 @@ func (e *Executor) Execute(ctx context.Context, input map[string]any) (registry.
 		},
 		Port: "main",
 	}, nil
+}
+
+// stringifyChatID accepts the JSON-typical shapes for a chat id (string,
+// float64, int, int64) and produces the canonical string form Telegram
+// expects. Returns "" with an error when the value is absent or of an
+// unsupported type.
+func stringifyChatID(v any) (string, error) {
+	switch x := v.(type) {
+	case string:
+		if x == "" {
+			return "", fmt.Errorf("missing \"chat_id\"")
+		}
+		return x, nil
+	case float64:
+		// JSON unmarshals numbers as float64 by default; only accept integers.
+		if x != float64(int64(x)) {
+			return "", fmt.Errorf("\"chat_id\" must be an integer")
+		}
+		return strconv.FormatInt(int64(x), 10), nil
+	case int:
+		return strconv.Itoa(x), nil
+	case int64:
+		return strconv.FormatInt(x, 10), nil
+	case nil:
+		return "", fmt.Errorf("missing \"chat_id\"")
+	default:
+		return "", fmt.Errorf("\"chat_id\" must be a string or integer")
+	}
 }
