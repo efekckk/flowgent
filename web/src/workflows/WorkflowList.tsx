@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useWorkflowsStore } from './workflowsStore';
 import { useAuth } from '../auth/useAuth';
 
@@ -78,6 +78,12 @@ export default function WorkflowList() {
             + New workflow
           </button>
         )}
+        <Link
+          to="/credentials"
+          className="block w-full rounded-md border border-slate-300 px-3 py-2 text-center text-sm text-slate-700 hover:bg-slate-50"
+        >
+          🔑 Credentials
+        </Link>
         <button
           onClick={logout}
           className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"

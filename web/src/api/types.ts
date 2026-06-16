@@ -86,3 +86,14 @@ export type SSEEvent =
   | { type: 'patch'; tool: string; payload: ChatPatchPayload }
   | { type: 'error'; error: string }
   | { type: 'done' };
+
+export interface CredentialDTO {
+  id: string;
+  name: string;
+  type: string;
+  created_at: string;
+}
+
+export interface CredentialList {
+  items: CredentialDTO[];
+}

@@ -3,6 +3,7 @@ import LoginPage from '../auth/LoginPage';
 import SignupPage from '../auth/SignupPage';
 import WorkflowsPage from '../workflows/WorkflowsPage';
 import ProtectedRoute from './ProtectedRoute';
+import CredentialsPage from '../credentials/CredentialsPage';
 
 export default function AppRouter() {
   return (
@@ -17,6 +18,10 @@ export default function AppRouter() {
         <Route
           path="/workflows/:id"
           element={<ProtectedRoute><WorkflowsPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/credentials"
+          element={<ProtectedRoute><CredentialsPage /></ProtectedRoute>}
         />
         <Route path="*" element={<Navigate to="/workflows" replace />} />
       </Routes>

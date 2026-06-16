@@ -1,6 +1,7 @@
 import type {
   SignupResponse, LoginResponse, MeResponse,
   WorkflowDTO, RunResponse, ErrorEnvelope, WorkflowDefinition,
+  CredentialDTO,
 } from './types';
 
 const BASE = ''; // same-origin; dev uses Vite proxy
@@ -63,6 +64,17 @@ export const api = {
     }),
 
   // Chat is SSE — see chat/useChat.ts in a later task
+
+  // Credentials
+  listCredentials: () =>
+    request<{ items: CredentialDTO[] }>('/v1/credentials'),
+  createCredential: (name: string, type: string, secret: Record<string, unknown>) =>
+    request<CredentialDTO>('/v1/credentials', {
+      method: 'POST',
+      body: JSON.stringify({ name, type, secret }),
+    }),
+  deleteCredential: (id: string) =>
+    request<void>(`/v1/credentials/${id}`, { method: 'DELETE' }),
 };
 
 export { APIError };
