@@ -18,6 +18,7 @@ import (
 	"github.com/efekckk/flowgent/internal/logging"
 	"github.com/efekckk/flowgent/internal/provider"
 	"github.com/efekckk/flowgent/internal/registry"
+	"github.com/efekckk/flowgent/internal/runlog"
 	"github.com/efekckk/flowgent/internal/scheduler"
 	"github.com/efekckk/flowgent/internal/storage"
 
@@ -125,9 +126,13 @@ func main() {
 	runRepo := storage.NewWorkflowRunRepo(pg.Pool)
 	runLogRepo := storage.NewRunLogRepo(pg.Pool)
 
+	streamer := runlog.New()
+	logSink := &compositeSink{repo: runLogRepo, streamer: streamer}
+
 	engine := executor.NewEngine(reg,
 		executor.WithCredentialResolver(credResolver),
 		executor.WithRunStore(&engineRunStore{workflows: workflowRepo, runs: runRepo}),
+		executor.WithLogSink(logSink),
 	)
 
 	triggerRepo := storage.NewTriggerRepo(pg.Pool)
@@ -147,6 +152,7 @@ func main() {
 		Workflows:     workflowRepo,
 		Runs:          runRepo,
 		RunLogs:       runLogRepo,
+		Streamer:      streamer,
 		Engine:        engine,
 		ChatThreads:   storage.NewChatThreadRepo(pg.Pool),
 		ChatMessages:  storage.NewChatMessageRepo(pg.Pool),
@@ -336,4 +342,33 @@ func (s *engineRunStore) GetTriggerPayload(ctx context.Context, runID string) (j
 		return nil, err
 	}
 	return run.TriggerPayload, nil
+}
+
+// compositeSink implements executor.LogSink by writing each event to BOTH
+// the database (for replay, search, and reconnecting clients) and the
+// in-process Streamer (for live SSE subscribers). Sink errors are swallowed
+// to honour the LogSink contract that a sink failure never crashes a run.
+type compositeSink struct {
+	repo     *storage.RunLogRepo
+	streamer *runlog.Streamer
+}
+
+func (c *compositeSink) Append(ctx context.Context, runID, nodeID, level, message string) {
+	if c.repo != nil {
+		_ = c.repo.Append(ctx, storage.RunLog{
+			RunID:   runID,
+			NodeID:  nodeID,
+			Level:   level,
+			Message: message,
+		})
+	}
+	if c.streamer != nil {
+		c.streamer.Publish(ctx, runlog.Event{
+			RunID:   runID,
+			NodeID:  nodeID,
+			Level:   level,
+			Message: message,
+			At:      time.Now().UTC().Format(time.RFC3339Nano),
+		})
+	}
 }

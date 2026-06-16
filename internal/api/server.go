@@ -34,6 +34,7 @@ func NewServer(d Deps) http.Handler {
 		sub.Get("/workflows/{id}/runs", d.handleListRunsForWorkflow)
 		sub.Get("/runs/{id}", d.handleGetRun)
 		sub.Get("/runs/{id}/logs", d.handleGetRunLogs)
+		sub.Get("/runs/{id}/stream", d.handleStreamRun)
 		sub.Post("/runs/{id}/replay", d.handleReplayRun)
 	})
 	// Static SPA at root — must be last so existing /v1 and /health win.

@@ -1,11 +1,13 @@
 package api_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/idgen"
 	"github.com/efekckk/flowgent/internal/registry"
+	"github.com/efekckk/flowgent/internal/runlog"
 	"github.com/efekckk/flowgent/internal/storage"
 	"github.com/efekckk/flowgent/internal/storage/storagetest"
 )
@@ -308,6 +311,116 @@ func TestRunHandler_ReplayCreatesChildRun(t *testing.T) {
 	}
 	if clone["hello"] != "world" {
 		t.Errorf("payload not cloned: %s", string(got.TriggerPayload))
+	}
+}
+
+// newRunAPIWithStreamer mirrors newRunAPI but also installs a runlog.Streamer
+// so the SSE handler is exercised end-to-end. It returns the streamer so the
+// test can publish events that should reach the connected client.
+func newRunAPIWithStreamer(t *testing.T) (http.Handler, *runlog.Streamer, []*http.Cookie, string) {
+	t.Helper()
+	dsn := storagetest.Fresh(t)
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	reg := registry.New()
+	reg.Register("core.set", &nopRunSetExec{})
+
+	wfRepo := storage.NewWorkflowRepo(pool)
+	runRepo := storage.NewWorkflowRunRepo(pool)
+	logRepo := storage.NewRunLogRepo(pool)
+
+	eng := executor.NewEngine(reg, executor.WithRunStore(&testRunStore{
+		wf:   wfRepo,
+		runs: runRepo,
+	}))
+
+	streamer := runlog.New()
+
+	srv := api.NewServer(api.Deps{
+		Users:         storage.NewUserRepo(pool),
+		Workspaces:    storage.NewWorkspaceRepo(pool),
+		Sessions:      storage.NewSessionRepo(pool),
+		Workflows:     wfRepo,
+		Runs:          runRepo,
+		RunLogs:       logRepo,
+		Streamer:      streamer,
+		Triggers:      storage.NewTriggerRepo(pool),
+		Engine:        eng,
+		Throttle:      auth.NewLoginThrottle(5, 15*time.Minute, time.Now),
+		CookieDomain:  "localhost",
+		CookieSecure:  false,
+		PublicBaseURL: "http://flowgent.test",
+	})
+
+	cookies := signupForRuns(t, srv)
+	wfID := createWorkflowForRuns(t, srv, cookies)
+	return srv, streamer, cookies, wfID
+}
+
+// TestStreamRun_DeliversLiveEvents spins up a real HTTP server because the
+// SSE handler relies on http.Flusher, which httptest.NewRecorder does not
+// implement. The test subscribes via the SSE endpoint, publishes one event
+// from a goroutine after a short delay, and asserts the message arrives in
+// the response stream before the deadline.
+func TestStreamRun_DeliversLiveEvents(t *testing.T) {
+	srv, streamer, cookies, _ := newRunAPIWithStreamer(t)
+	runID := "run_stream_test_1"
+
+	hs := httptest.NewServer(srv)
+	defer hs.Close()
+
+	req, err := http.NewRequest(http.MethodGet, hs.URL+"/v1/runs/"+runID+"/stream", nil)
+	if err != nil {
+		t.Fatalf("new req: %v", err)
+	}
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	// Publish from another goroutine after a small delay so the handler
+	// has time to subscribe.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		streamer.Publish(context.Background(), runlog.Event{
+			RunID:   runID,
+			Message: "live-event-marker",
+			Level:   "info",
+		})
+	}()
+
+	done := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, "live-event-marker") {
+				done <- line
+				return
+			}
+		}
+		done <- ""
+	}()
+
+	select {
+	case line := <-done:
+		if !strings.Contains(line, "live-event-marker") {
+			t.Fatalf("scanner ended without event; last line=%q", line)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not receive live event within 2s")
 	}
 }
 

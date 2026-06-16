@@ -3,12 +3,15 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/efekckk/flowgent/internal/runlog"
 	"github.com/efekckk/flowgent/internal/storage"
 )
 
@@ -193,6 +196,90 @@ func (d *Deps) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"items": dtos})
+}
+
+// handleStreamRun opens a Server-Sent Events stream that tails the run's
+// log lines in real time. The handler first replays past rows from
+// storage starting at ?since=<last_id> so a reconnecting client doesn't
+// miss anything, then subscribes to the in-process Streamer for live
+// events. A 30s heartbeat keeps the connection healthy through proxies.
+func (d *Deps) handleStreamRun(w http.ResponseWriter, r *http.Request) {
+	if _, ok := userFromContext(r.Context()); !ok {
+		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	if d.Streamer == nil {
+		http.Error(w, "streamer disabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable proxy buffering
+
+	// Subscribe before draining storage so any event emitted during the
+	// catch-up window lands in the channel rather than being missed.
+	ch, unsub := d.Streamer.Subscribe(id)
+	defer unsub()
+
+	// Catch-up from DB so reconnecting clients don't miss past events.
+	if d.RunLogs != nil {
+		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		if past, err := d.RunLogs.ListByRun(r.Context(), id, since, 1000); err == nil {
+			for _, l := range past {
+				writeSSEFrame(w, "log", logToEvent(l))
+			}
+			flusher.Flush()
+		}
+	}
+
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case e, ok := <-ch:
+			if !ok {
+				return
+			}
+			writeSSEFrame(w, "log", e)
+			flusher.Flush()
+		case <-heartbeat.C:
+			_, _ = io.WriteString(w, ": heartbeat\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+// writeSSEFrame serialises one SSE message in the `event: <name>\ndata: <json>\n\n`
+// shape that browser EventSource expects. Errors marshalling are dropped on
+// purpose — a malformed event must never break the rest of the stream.
+func writeSSEFrame(w io.Writer, event string, data any) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: %s\n", event)
+	fmt.Fprintf(w, "data: %s\n\n", payload)
+}
+
+func logToEvent(l storage.RunLog) runlog.Event {
+	return runlog.Event{
+		RunID:   l.RunID,
+		NodeID:  l.NodeID,
+		Level:   l.Level,
+		Message: l.Message,
+		At:      l.At.Format(time.RFC3339Nano),
+	}
 }
 
 // handleReplayRun forks a brand-new run that inherits the parent's

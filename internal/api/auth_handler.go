@@ -12,6 +12,7 @@ import (
 	"github.com/efekckk/flowgent/internal/auth"
 	"github.com/efekckk/flowgent/internal/executor"
 	"github.com/efekckk/flowgent/internal/idgen"
+	"github.com/efekckk/flowgent/internal/runlog"
 	"github.com/efekckk/flowgent/internal/scheduler"
 	"github.com/efekckk/flowgent/internal/storage"
 )
@@ -34,6 +35,7 @@ type Deps struct {
 	Credentials   *storage.CredentialRepo
 	Triggers      *storage.TriggerRepo
 	RunLogs       *storage.RunLogRepo
+	Streamer      *runlog.Streamer
 	Engine        *executor.Engine
 	Agent         *agent.Agent
 	Scheduler     *scheduler.Scheduler
