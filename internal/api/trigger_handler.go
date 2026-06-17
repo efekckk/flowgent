@@ -41,17 +41,12 @@ type triggerListResponse struct {
 }
 
 func (d *Deps) handleCreateTrigger(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
-		return
-	}
 	wfID := chi.URLParam(r, "id")
 	if wfID == "" {
 		WriteError(w, http.StatusBadRequest, "invalid_input", "Workflow id is required.")
 		return
 	}
-	if _, err := d.Workflows.Get(r.Context(), wfID); err != nil {
-		WriteError(w, http.StatusNotFound, "not_found", "Workflow not found.")
+	if _, ok := d.loadOwnedWorkflow(w, r, wfID); !ok {
 		return
 	}
 
@@ -112,11 +107,10 @@ func (d *Deps) handleCreateTrigger(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) handleListTriggers(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+	wfID := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedWorkflow(w, r, wfID); !ok {
 		return
 	}
-	wfID := chi.URLParam(r, "id")
 	rows, err := d.Triggers.ListByWorkflow(r.Context(), wfID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "list_failed", "Could not list triggers.")
@@ -143,23 +137,14 @@ func (d *Deps) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
-		return
-	}
 	id := chi.URLParam(r, "id")
 	var req triggerUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_json", "Body must be JSON.")
 		return
 	}
-	cur, err := d.Triggers.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			WriteError(w, http.StatusNotFound, "not_found", "Trigger not found.")
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, "get_failed", "Could not fetch trigger.")
+	cur, ok := d.loadOwnedTrigger(w, r, id)
+	if !ok {
 		return
 	}
 	enabled := cur.Enabled
@@ -206,11 +191,10 @@ func (d *Deps) handleUpdateTrigger(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Deps) handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+	id := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedTrigger(w, r, id); !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
 	if d.Scheduler != nil {
 		d.Scheduler.Remove(id)
 	}

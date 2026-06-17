@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"time"
 
@@ -81,13 +80,8 @@ func (d *Deps) handleCreateWorkflow(w http.ResponseWriter, r *http.Request) {
 
 func (d *Deps) handleGetWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	wf, err := d.Workflows.Get(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			WriteError(w, http.StatusNotFound, "not_found", "Workflow not found.")
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, "get_failed", "Could not fetch workflow.")
+	wf, ok := d.loadOwnedWorkflow(w, r, id)
+	if !ok {
 		return
 	}
 	ver, err := d.Workflows.GetVersion(r.Context(), wf.ID, wf.CurrentVersion)
@@ -108,9 +102,8 @@ type runResponse struct {
 
 func (d *Deps) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	wf, err := d.Workflows.Get(r.Context(), id)
-	if err != nil {
-		WriteError(w, http.StatusNotFound, "not_found", "Workflow not found.")
+	wf, ok := d.loadOwnedWorkflow(w, r, id)
+	if !ok {
 		return
 	}
 	ver, err := d.Workflows.GetVersion(r.Context(), wf.ID, wf.CurrentVersion)
@@ -146,6 +139,19 @@ func (d *Deps) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Defensive: if we exit early (panic, client disconnect before
+	// UpdateRunStatus, etc.) the row would stay in 'running'. The CAS
+	// fail-if-running guard makes this safe to invoke unconditionally.
+	settled := false
+	defer func() {
+		if settled {
+			return
+		}
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = d.Runs.FailRunIfRunning(bgCtx, runID, "handler exited before final status", time.Now().UTC())
+	}()
+
 	state, runErr := d.Engine.Run(r.Context(), &def, executor.RunOptions{
 		TriggerKind:    "manual",
 		TriggerPayload: triggerPayload,
@@ -158,6 +164,7 @@ func (d *Deps) handleRunWorkflow(w http.ResponseWriter, r *http.Request) {
 		errText = runErr.Error()
 	}
 	_ = d.Runs.UpdateRunStatus(r.Context(), runID, runStatus, errText, &now, &finishedAt)
+	settled = true
 
 	resp := runResponse{RunID: runID, Status: runStatus, Error: errText}
 	WriteJSON(w, http.StatusOK, resp)

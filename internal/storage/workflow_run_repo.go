@@ -114,6 +114,26 @@ func (r *WorkflowRunRepo) Get(ctx context.Context, id string) (WorkflowRun, erro
 	return run, nil
 }
 
+// FailRunIfRunning is the engine's last-resort write to terminate a row
+// that was left in 'running' state by an early exit (panic, dropped
+// context, persist failure). The status guard makes the call idempotent:
+// a row that already reached succeeded/failed/cancelled is left alone so
+// a stale defer cannot overwrite a real terminal state.
+func (r *WorkflowRunRepo) FailRunIfRunning(ctx context.Context, id, errMsg string, finishedAt time.Time) error {
+	const q = `
+		UPDATE workflow_runs
+		SET status = 'failed',
+		    error = NULLIF($2, ''),
+		    finished_at = COALESCE(finished_at, $3)
+		WHERE id = $1 AND status = 'running'
+	`
+	_, err := r.pool.Exec(ctx, q, id, errMsg, finishedAt)
+	if err != nil {
+		return fmt.Errorf("storage: fail run: %w", err)
+	}
+	return nil
+}
+
 func (r *WorkflowRunRepo) UpdateRunStatus(ctx context.Context, id, status, errMsg string, startedAt, finishedAt *time.Time) error {
 	const q = `
 		UPDATE workflow_runs

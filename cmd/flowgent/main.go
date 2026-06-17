@@ -345,6 +345,10 @@ func (s *engineRunStore) GetTriggerPayload(ctx context.Context, runID string) (j
 	return run.TriggerPayload, nil
 }
 
+func (s *engineRunStore) FailRun(ctx context.Context, runID, errMsg string, finishedAt time.Time) error {
+	return s.runs.FailRunIfRunning(ctx, runID, errMsg, finishedAt)
+}
+
 // compositeSink implements executor.LogSink by writing each event to BOTH
 // the database (for replay, search, and reconnecting clients) and the
 // in-process Streamer (for live SSE subscribers). Sink errors are swallowed

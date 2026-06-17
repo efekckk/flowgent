@@ -129,6 +129,10 @@ func (s *testRunStore) GetTriggerPayload(ctx context.Context, runID string) (jso
 	return run.TriggerPayload, nil
 }
 
+func (s *testRunStore) FailRun(ctx context.Context, runID, errMsg string, finishedAt time.Time) error {
+	return s.runs.FailRunIfRunning(ctx, runID, errMsg, finishedAt)
+}
+
 func signupForRuns(t *testing.T, srv http.Handler) []*http.Cookie {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"email": "runs@example.com", "password": "supersecret"})
@@ -317,7 +321,7 @@ func TestRunHandler_ReplayCreatesChildRun(t *testing.T) {
 // newRunAPIWithStreamer mirrors newRunAPI but also installs a runlog.Streamer
 // so the SSE handler is exercised end-to-end. It returns the streamer so the
 // test can publish events that should reach the connected client.
-func newRunAPIWithStreamer(t *testing.T) (http.Handler, *runlog.Streamer, []*http.Cookie, string) {
+func newRunAPIWithStreamer(t *testing.T) (http.Handler, *runlog.Streamer, *pgxpool.Pool, []*http.Cookie, string) {
 	t.Helper()
 	dsn := storagetest.Fresh(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
@@ -358,7 +362,7 @@ func newRunAPIWithStreamer(t *testing.T) (http.Handler, *runlog.Streamer, []*htt
 
 	cookies := signupForRuns(t, srv)
 	wfID := createWorkflowForRuns(t, srv, cookies)
-	return srv, streamer, cookies, wfID
+	return srv, streamer, pool, cookies, wfID
 }
 
 // TestStreamRun_DeliversLiveEvents spins up a real HTTP server because the
@@ -367,8 +371,10 @@ func newRunAPIWithStreamer(t *testing.T) (http.Handler, *runlog.Streamer, []*htt
 // from a goroutine after a short delay, and asserts the message arrives in
 // the response stream before the deadline.
 func TestStreamRun_DeliversLiveEvents(t *testing.T) {
-	srv, streamer, cookies, _ := newRunAPIWithStreamer(t)
-	runID := "run_stream_test_1"
+	srv, streamer, pool, cookies, wfID := newRunAPIWithStreamer(t)
+	// Seed a real workflow_run owned by this workspace so the ownership
+	// guard on /v1/runs/{id}/stream lets the request through.
+	runID := seedRunRow(t, pool, wfID, "running", `{}`)
 
 	hs := httptest.NewServer(srv)
 	defer hs.Close()

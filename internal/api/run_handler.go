@@ -95,13 +95,12 @@ func toNodeRunDTO(n storage.NodeRun) nodeRunDTO {
 // from, and to query params are optional filters; cursor opaquely encodes
 // the previous page's tail.
 func (d *Deps) handleListRunsForWorkflow(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
-		return
-	}
 	wfID := chi.URLParam(r, "id")
 	if wfID == "" {
 		WriteError(w, http.StatusBadRequest, "invalid_input", "Workflow id is required.")
+		return
+	}
+	if _, ok := d.loadOwnedWorkflow(w, r, wfID); !ok {
 		return
 	}
 	q := r.URL.Query()
@@ -140,11 +139,10 @@ func (d *Deps) handleListRunsForWorkflow(w http.ResponseWriter, r *http.Request)
 // the run viewer wants both halves and a single round-trip simplifies the
 // client.
 func (d *Deps) handleGetRun(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+	id := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedRun(w, r, id); !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
 	run, nodes, err := d.Runs.GetWithNodes(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -168,15 +166,14 @@ func (d *Deps) handleGetRun(w http.ResponseWriter, r *http.Request) {
 // param holds the last id the caller observed, so SPA polling remains
 // O(new rows) instead of O(total log size).
 func (d *Deps) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
-		return
-	}
 	if d.RunLogs == nil {
 		WriteError(w, http.StatusServiceUnavailable, "logs_disabled", "Run logs are not enabled.")
 		return
 	}
 	id := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedRun(w, r, id); !ok {
+		return
+	}
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 200, 1000)
 	items, err := d.RunLogs.ListByRun(r.Context(), id, since, limit)
@@ -204,11 +201,10 @@ func (d *Deps) handleGetRunLogs(w http.ResponseWriter, r *http.Request) {
 // miss anything, then subscribes to the in-process Streamer for live
 // events. A 30s heartbeat keeps the connection healthy through proxies.
 func (d *Deps) handleStreamRun(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+	id := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedRun(w, r, id); !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -286,11 +282,10 @@ func logToEvent(l storage.RunLog) runlog.Event {
 // trigger_payload. The engine's RunFromReplay owns the workflow lookup +
 // persistence — this handler is just the HTTP front door.
 func (d *Deps) handleReplayRun(w http.ResponseWriter, r *http.Request) {
-	if _, ok := userFromContext(r.Context()); !ok {
-		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
+	id := chi.URLParam(r, "id")
+	if _, ok := d.loadOwnedRun(w, r, id); !ok {
 		return
 	}
-	id := chi.URLParam(r, "id")
 	parent, _, err := d.Runs.GetWithNodes(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {

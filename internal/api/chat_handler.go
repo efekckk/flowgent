@@ -34,6 +34,13 @@ func (d *Deps) handleChat(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusUnauthorized, "no_session", "Authentication required.")
 		return
 	}
+	// Ownership before body validation: a 400 "missing_message" would
+	// leak that the workflow id is reachable, even if only by signalling
+	// "this endpoint exists for you".
+	wf, ok2 := d.loadOwnedWorkflow(w, r, wfID)
+	if !ok2 {
+		return
+	}
 	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(w, http.StatusBadRequest, "invalid_json", "Body must be JSON.")
@@ -45,12 +52,6 @@ func (d *Deps) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Model == "" {
 		req.Model = "gpt-4o"
-	}
-
-	wf, err := d.Workflows.Get(r.Context(), wfID)
-	if err != nil {
-		WriteError(w, http.StatusNotFound, "not_found", "Workflow not found.")
-		return
 	}
 	ver, err := d.Workflows.GetVersion(r.Context(), wf.ID, wf.CurrentVersion)
 	if err != nil {
