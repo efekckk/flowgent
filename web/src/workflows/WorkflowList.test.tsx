@@ -30,7 +30,7 @@ describe('WorkflowList', () => {
 
   it('renders an empty-state message when there are no workflows', () => {
     renderList({ id: 'usr_1', email: 'foo@bar.com' });
-    expect(screen.getByText(/no workflows yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/empty room/i)).toBeInTheDocument();
   });
 
   it('renders workflow rows from the store', () => {

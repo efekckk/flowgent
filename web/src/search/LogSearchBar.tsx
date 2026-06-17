@@ -2,15 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { SearchHit } from '../api/types';
+import Icon from '../ui/Icon';
 
 interface LogSearchBarProps {
   workspaceId: string | null;
 }
 
-// LogSearchBar is a workspace-scoped run-log search input. Typing fires a
-// 500ms-debounced request against /v1/workspaces/{wsID}/runs/search; the
-// dropdown shows up to 20 hits with ts_headline-rendered snippets where
-// matched terms are wrapped in «…» on the server.
 export default function LogSearchBar({ workspaceId }: LogSearchBarProps) {
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -21,8 +18,6 @@ export default function LogSearchBar({ workspaceId }: LogSearchBarProps) {
   const timerRef = useRef<number | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // Debounced search on q change. The backend rejects queries under 3 chars
-  // with 400, so we short-circuit client-side to avoid the wasted round-trip.
   useEffect(() => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     if (!workspaceId || q.trim().length < 3) {
@@ -50,8 +45,6 @@ export default function LogSearchBar({ workspaceId }: LogSearchBarProps) {
     };
   }, [q, workspaceId]);
 
-  // Close dropdown on outside click so the menu doesn't trap focus when
-  // the user moves on to other parts of the page.
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
@@ -78,42 +71,47 @@ export default function LogSearchBar({ workspaceId }: LogSearchBarProps) {
 
   return (
     <div ref={rootRef} className="relative w-full">
-      <input
-        type="search"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onFocus={() => { if (hits.length > 0) setOpen(true); }}
-        onKeyDown={onKeyDown}
-        placeholder="Search logs…"
-        aria-label="Search run logs"
-        className="w-full rounded border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
-      />
+      <div className="relative">
+        <Icon name="search" size={12} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-paper-400" />
+        <input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => { if (hits.length > 0) setOpen(true); }}
+          onKeyDown={onKeyDown}
+          placeholder="Search logs…"
+          aria-label="Search run logs"
+          className="w-full rounded-sharp border border-ink-500 bg-ink-800 px-3 py-1.5 pl-8 font-mono text-xs text-paper-50 placeholder:text-paper-600 focus:border-cyan focus:outline-none"
+        />
+      </div>
       {open && (
-        <div className="absolute left-0 right-0 z-30 mt-1 max-h-96 overflow-auto rounded border border-slate-200 bg-white shadow-lg">
+        <div className="corners absolute left-0 right-0 z-30 mt-1 max-h-96 overflow-auto border border-ink-500 bg-ink-700/95 shadow-callout backdrop-blur-sm">
+          <span className="corner-bl" />
+          <span className="corner-br" />
           {loading && (
-            <div className="px-3 py-2 text-sm text-slate-500">Searching…</div>
+            <div className="flex items-center gap-2 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-paper-400">
+              <Icon name="spinner" size={12} className="animate-spin text-cyan" />
+              searching…
+            </div>
           )}
           {error && (
-            <div className="px-3 py-2 text-sm text-red-600">{error}</div>
+            <div className="px-3 py-2 font-mono text-[11px] text-rose">{error}</div>
           )}
           {!loading && !error && hits.length === 0 && (
-            <div className="px-3 py-2 text-sm text-slate-500">No matches.</div>
+            <div className="px-3 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-paper-400">No matches.</div>
           )}
           {hits.map((h, i) => (
             <button
               key={`${h.run_id}-${h.at}-${i}`}
               onClick={() => onHit(h)}
-              className="block w-full px-3 py-2 text-left hover:bg-indigo-50"
+              className="block w-full border-b border-ink-500/40 px-3 py-2 text-left transition hover:bg-cyan/5"
               type="button"
             >
-              <div className="text-xs text-slate-400">
-                {new Date(h.at).toLocaleString()} · run {h.run_id.slice(0, 12)}
+              <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-paper-400">
+                {new Date(h.at).toLocaleString()} · run <span className="text-cyan">{h.run_id.slice(0, 12)}</span>
               </div>
               <div
-                className="text-sm text-slate-700"
-                // The snippet is server-controlled but may still contain
-                // user-supplied log text. We escape HTML defensively and
-                // only re-allow our own «…» → <mark> substitution.
+                className="mt-0.5 font-mono text-[11px] text-paper-200 [&_mark]:bg-cyan/25 [&_mark]:text-cyan [&_mark]:px-0.5"
                 dangerouslySetInnerHTML={{ __html: renderSnippet(h.snippet) }}
               />
             </button>

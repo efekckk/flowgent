@@ -2,6 +2,150 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root {
-  height: 100%;
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-ink-900 text-paper-50 font-mono antialiased;
+    font-feature-settings: 'ss01', 'ss02', 'cv01';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: rgba(125, 211, 252, 0.25);
+    color: #F5F0E8;
+  }
+
+  ::-webkit-scrollbar              { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track        { background: transparent; }
+  ::-webkit-scrollbar-thumb        { background: #1E2A47; border-radius: 0; }
+  ::-webkit-scrollbar-thumb:hover  { background: #2A3958; }
+
+  /* Native form controls follow the blueprint palette */
+  input::placeholder, textarea::placeholder {
+    color: #5A6885;
+  }
+}
+
+@layer components {
+  /* Drafting table — used on auth surfaces and empty states */
+  .drafting-table {
+    background-color: #0B1220;
+    background-image:
+      linear-gradient(to right, rgba(125,211,252,0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(125,211,252,0.06) 1px, transparent 1px),
+      radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+    background-size: 24px 24px, 24px 24px, 100% 100%;
+  }
+
+  /* Blueprint sheet — denser grid, used on canvas chrome */
+  .blueprint-sheet {
+    background-color: #0B1220;
+    background-image:
+      linear-gradient(to right, rgba(125,211,252,0.10) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(125,211,252,0.10) 1px, transparent 1px),
+      linear-gradient(to right, rgba(125,211,252,0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(125,211,252,0.04) 1px, transparent 1px);
+    background-size: 96px 96px, 96px 96px, 12px 12px, 12px 12px;
+  }
+
+  /* Corner brackets — drafting marks for cards, headers, modals */
+  .corners {
+    position: relative;
+  }
+  .corners::before,
+  .corners::after,
+  .corners > .corner-tl,
+  .corners > .corner-tr,
+  .corners > .corner-bl,
+  .corners > .corner-br {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-color: rgba(125, 211, 252, 0.55);
+    pointer-events: none;
+  }
+  .corners::before  { top: -1px; left: -1px;  border-left: 1px solid; border-top: 1px solid; }
+  .corners::after   { top: -1px; right: -1px; border-right: 1px solid; border-top: 1px solid; }
+  .corners > .corner-bl { bottom: -1px; left: -1px;  border-left: 1px solid; border-bottom: 1px solid; display: block; }
+  .corners > .corner-br { bottom: -1px; right: -1px; border-right: 1px solid; border-bottom: 1px solid; display: block; }
+
+  /* Display heading utility */
+  .h-display {
+    @apply font-display tracking-tight text-paper-50;
+    font-variation-settings: 'opsz' 96;
+  }
+
+  /* Dotted ruler used to separate sections */
+  .rule-dotted {
+    background-image: linear-gradient(to right, rgba(125,211,252,0.35) 0, rgba(125,211,252,0.35) 2px, transparent 2px, transparent 6px);
+    background-size: 6px 1px;
+    background-repeat: repeat-x;
+    height: 1px;
+  }
+
+  /* Caret indicator */
+  .caret::after {
+    content: '_';
+    @apply animate-tick text-cyan;
+    margin-left: 2px;
+  }
+
+  /* Status pills */
+  .pill {
+    @apply inline-flex items-center gap-1.5 border border-ink-500 bg-ink-700/70 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-paper-400;
+  }
+  .pill-cyan  { @apply border-cyan/40 text-cyan; }
+  .pill-amber { @apply border-amber/40 text-amber; }
+  .pill-rose  { @apply border-rose/40 text-rose; }
+  .pill-moss  { @apply border-moss/40 text-moss; }
+}
+
+/* React Flow visual overrides for blueprint canvas */
+.react-flow__attribution { display: none !important; }
+
+.react-flow__controls {
+  background: rgba(11, 18, 32, 0.85) !important;
+  border: 1px solid #1E2A47 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(6px);
+}
+.react-flow__controls button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid #1E2A47 !important;
+  color: #94A3B8 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+.react-flow__controls button:hover { color: #7DD3FC !important; background: #111A2E !important; }
+.react-flow__controls button:last-child { border-bottom: none !important; }
+.react-flow__controls button svg { fill: currentColor !important; }
+
+.react-flow__minimap {
+  background: rgba(11, 18, 32, 0.85) !important;
+  border: 1px solid #1E2A47 !important;
+  border-radius: 2px !important;
+}
+.react-flow__minimap-mask { fill: rgba(125, 211, 252, 0.08) !important; }
+
+.react-flow__edge-path { stroke: rgba(125, 211, 252, 0.55); stroke-width: 1.25; }
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path { stroke: #7DD3FC; }
+.react-flow__arrowhead { fill: rgba(125, 211, 252, 0.7); }
+
+.react-flow__handle {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 0 !important;
+  background: #0B1220 !important;
+  border: 1px solid #7DD3FC !important;
 }
