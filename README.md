@@ -1,10 +1,83 @@
 # Flowgent
 
-AI-first workflow automation. You describe what you want in plain language, AI builds the workflow.
+> **Workflow automation, drafted in plain language.**
+> You describe what you want; an AI agent wires the nodes, validates the graph, and hands it back as an editable workflow.
 
-> Status: pre-alpha. **Triggers + run viewer (M8) complete.** See `docs/plans/` for the next milestone.
+<p align="center">
+  <em>Hero screencast — coming with the launch post.</em>
+  <!-- TODO: drop hero.gif into docs/launch/assets/ and reference here -->
+</p>
 
-## Run locally
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8)](go.mod)
+[![Tests](https://img.shields.io/badge/tests-passing-success)](#test)
+
+---
+
+## Why
+
+Zapier is great until you outgrow it. n8n is great until you have to draw every node by hand. Flowgent sits in the middle: an **open-source, self-hostable** automation engine where the **interface is your sentence**. The agent proposes a workflow, you edit the graph, you ship.
+
+| | Zapier | n8n | **Flowgent** |
+|---|:---:|:---:|:---:|
+| Self-host | – | ✓ | ✓ |
+| Open source | – | ✓ | ✓ (Apache 2.0) |
+| AI-native authoring | partial | – | **first-class** |
+| Live log streaming | ✓ | ✓ | ✓ (SSE + full-text search) |
+| Cron + Webhook + Manual triggers | ✓ | ✓ | ✓ |
+| Replay past runs | – | – | ✓ |
+
+## 60-second quickstart
+
+```bash
+git clone https://github.com/efekckk/flowgent.git
+cd flowgent
+make demo
+```
+
+`make demo` writes a `.env` with a fresh `FLOWGENT_CRED_KEY`, builds the multi-stage Docker image (web + Go), and starts Postgres + the API on `http://localhost:8080`.
+
+Open it, sign up, add an OpenAI credential, then tell the assistant what you want:
+
+> *"Every time someone posts to /webhook, summarise the payload with GPT-4o, then ping `#general` on Slack."*
+
+The agent proposes a workflow. You hit **Fire Run**, watch the live log stream, then click **Replay** to re-run with the same input.
+
+Want hot reload? `make dev` runs Postgres in Docker and the API on the host with `go run`.
+
+## What's inside
+
+- **Visual editor** built on ReactFlow with a deliberate engineering-blueprint UI (dark canvas, monospace typography, corner brackets, isometric grid). It looks like a drafting table, not a clone of every other SaaS dashboard.
+- **AI agent** (OpenAI + Anthropic) that validates each proposal (tool slugs known, edge targets valid, no cycles) and self-corrects up to 3 times.
+- **Executor** with parallel branches (goroutine pool, 8 nodes per wave), loops, merges, classified retries (`rate_limited`, `transient_5xx`, `auth_failed`, `validation`), JS sandbox (goja, CPU+mem-limited).
+- **Triggers**: manual, cron (5-field + `@hourly`/`@daily`/`@every Nm`), and webhook (with optional HMAC-SHA256 verification, constant-time).
+- **Run viewer**: read-only canvas with per-node status colors, live SSE log stream (reconnect-safe via `?since=`), node IO inspection, replay.
+- **Log search**: workspace-scoped full-text search backed by a Postgres generated `tsvector` column + GIN index, with `ts_headline` snippet highlighting.
+- **Credentials**: encrypted at rest with AES-256-GCM. Plaintext never leaves the server's process memory.
+- **Workspace isolation**: every workflow / run / trigger / credential endpoint resolves to a workspace and rejects cross-tenant access with a flat 404.
+
+## Status
+
+| Milestone | Done | What landed |
+|---|:---:|---|
+| M1 Foundation | ✓ | Auth, sessions, base storage |
+| M2 Engine core | ✓ | Tool registry, expression engine |
+| M3 DAG + parallel | ✓ | Loop, merge, JS sandbox, parallel branches |
+| M4 AI agent | ✓ | Provider abstraction, generation loop |
+| M5 UI shell | ✓ | React + ReactFlow + chat |
+| M6 Credentials + LLM | ✓ | Encrypted store, `llm.chat` |
+| M7 Integrations wave 1 | ✓ | Slack, Telegram, Email, Postgres |
+| M8 Triggers + run viewer | ✓ | Cron, webhook, live log, full-text search |
+| M9 Ownership + hardening | ✓ | Workspace IDOR sweep, replay orphan-row fix, audit-trail ctx fix |
+| M10 Self-host & launch | ✓ | Docker compose, Makefile, multi-stage image, launch artifacts |
+
+This is pre-alpha — schemas may still shift. The code is open while it bakes.
+
+---
+
+## Reference
+
+### Manual setup (without Docker)
 
 ```bash
 docker compose up -d postgres
@@ -14,15 +87,23 @@ cp -r web/dist/. internal/webfs/dist/
 
 export DATABASE_URL="postgres://flowgent:flowgent@localhost:5432/flowgent?sslmode=disable"
 export FLOWGENT_CRED_KEY="$(openssl rand -base64 32)"
-export FLOWGENT_OPENAI_KEY="sk-..."        # optional: env fallback for the agent chat endpoint
-export FLOWGENT_DEFAULT_PROVIDER="openai"
-export FLOWGENT_PUBLIC_BASE_URL="http://localhost:8080"  # public URL used in webhook URLs returned to the UI
+export FLOWGENT_OPENAI_KEY="sk-..."
+export FLOWGENT_PUBLIC_BASE_URL="http://localhost:8080"
 go run ./cmd/flowgent
 ```
 
-Open `http://localhost:8080`. Sign up, add credentials (OpenAI/Anthropic for the LLM; Slack incoming-webhook URL, Telegram bot token, SMTP creds, or a Postgres DSN for outputs), and describe a workflow ("Every time someone posts on /webhook, summarise with GPT-4o, then ping #general on Slack"). The agent wires it up; click Run.
+### Make targets
 
-## Test
+| Target | What it does |
+|---|---|
+| `make env` | Generate `.env` from `.env.example` with a fresh `FLOWGENT_CRED_KEY` |
+| `make demo` | `docker compose up --build` — full stack at `:8080` |
+| `make dev` | Postgres in Docker, server on host with `go run` |
+| `make build` | Web build + embedded Go binary at `./flowgent` |
+| `make test` | `go test ./... -race` + `npm --prefix web test` |
+| `make clean` | Drop binary + web `dist/` + node_modules |
+
+### Test
 
 ```bash
 go test ./... -race
@@ -31,7 +112,7 @@ npm --prefix web test
 
 Backend integration tests use [dockertest](https://github.com/ory/dockertest); they auto-skip on machines without Docker.
 
-## Current API surface
+### API surface
 
 | Method | Path                          | Description                              |
 |--------|-------------------------------|------------------------------------------|
@@ -61,7 +142,7 @@ Backend integration tests use [dockertest](https://github.com/ory/dockertest); t
 
 Everything else under `/` is served by the React SPA.
 
-## Available tools
+### Available tools
 
 | Slug                   | Category       | What it does |
 |------------------------|----------------|--------------|
@@ -78,7 +159,7 @@ Everything else under `/` is served by the React SPA.
 | email.smtp_send        | communication  | SMTP PLAIN auth send via Go stdlib              |
 | postgres.query         | data           | Parameterised SQL query via pgx                 |
 
-## Credential types
+### Credential types
 
 | Type            | Fields                                          | Used by                |
 |-----------------|-------------------------------------------------|------------------------|
@@ -91,9 +172,7 @@ Everything else under `/` is served by the React SPA.
 
 All credentials are encrypted at rest with AES-256-GCM (master key from `FLOWGENT_CRED_KEY`). Plaintext never leaves process memory.
 
-## Triggers
-
-Workflows fire from one of three sources:
+### Triggers
 
 | Kind     | Config                                  |
 |----------|-----------------------------------------|
@@ -103,22 +182,22 @@ Workflows fire from one of three sources:
 
 Cron expressions support standard 5-field syntax (`0 9 * * *`) plus shortcuts (`@hourly`, `@daily`, `@weekly`, `@every 5m`). The scheduler boots from the `triggers` table; expressions are validated at create time so malformed configurations fail fast.
 
-Webhooks are addressable at `<public_base>/webhooks/{trigger_id}/{token}`. When a secret is configured, requests must include `X-Flowgent-Signature: sha256=<hex>` computed over the raw body. Verification is constant-time. The webhook URL is returned in the create-trigger response so the UI can show it without a second request.
+Webhooks are addressable at `<public_base>/webhooks/{trigger_id}/{token}`. When a secret is configured, requests must include `X-Flowgent-Signature: sha256=<hex>` computed over the raw body. Verification is constant-time.
 
-## Run viewer
+### Run viewer
 
-Every fire produces a `workflow_run` row plus a `node_run` per node executed. The Runs page lists history with filters (status, date range) and cursor pagination. Clicking a run opens the canvas in read-only mode with per-node status colors (pending, running, succeeded, failed) plus a tabbed right panel:
+Every fire produces a `workflow_run` row plus a `node_run` per node executed. The Runs page lists history with filters (status, date range) and cursor pagination. Clicking a run opens the canvas in read-only mode with per-node status colors plus a tabbed right panel:
 
 - **Logs** — live SSE stream from `/v1/runs/:id/stream`; reconnect-safe via `?since=<last_id>` catch-up from the database
 - **Node IO** — pretty-printed input/output JSON for the selected node
 
 The **Replay** button re-executes a past run with its original `trigger_payload`. Replayed runs carry `parent_run_id` so the history page can flag them.
 
-## Log search
+### Log search
 
 Run logs are indexed in Postgres via a generated `tsvector` column with a GIN index. The search bar in the app header queries `GET /v1/workspaces/:id/runs/search?q=<query>` and returns up to 100 matches with `ts_headline` snippets (server-side highlighting). Queries shorter than 3 characters are rejected to keep latency predictable.
 
-## Engine capabilities
+### Engine capabilities
 
 - Parallel branch execution: up to 8 nodes per wave on a goroutine pool
 - Loop coordination: `core.loop` with explicit body node list
@@ -127,30 +206,17 @@ Run logs are indexed in Postgres via a generated `tsvector` column with a GIN in
 - Retry policy: classified errors (`rate_limited`, `transient_5xx`) trigger exponential backoff; `auth_failed` and `validation` short-circuit
 - Credential injection: any node with a `credential` reference receives the decrypted secret in `input.__credential`
 
-## AI agent
+### AI agent
 
 Send a chat message via the UI or `POST /v1/workflows/:id/chat`. The agent validates each proposal (tool slugs known, edge targets valid, no cycles) and re-prompts the model up to 3 times if validation fails. Supported providers: **OpenAI** and **Anthropic**.
 
-## Expressions
+### Expressions
 
 Inside node params: `{{ $trigger.field }}`, `{{ $nodes.<id>.<field> }}`, `{{ $now }}`, or any expr-lang expression. A param whose entire value is a single `{{ ... }}` keeps its native type. Inside a loop body, `$nodes.<loop_id>.current` and `$nodes.<loop_id>.index` carry the iteration value and index.
 
-## Roadmap
+### Contributing
 
-Milestone status:
-
-- [x] M1 Foundation — auth, sessions, base storage
-- [x] M2 Engine core — tool registry, expression engine, first primitive nodes
-- [x] M3 DAG + paralel — loop, merge, code sandbox, parallel branches
-- [x] M4 AI agent — provider abstraction, workflow generation loop
-- [x] M5 UI shell — React + ReactFlow + chat panel
-- [x] M6 Credentials + LLM integration — encrypted credentials store, llm.chat node
-- [x] M7 Integrations wave 1 — Slack, Telegram, Email, Postgres
-- [x] M8 Triggers + run viewer — cron, webhook, live log
-- [ ] M9 Polish & onboarding
-- [ ] M10 Self-host & launch
-
-> M7.1 will add Google Sheets via service-account JWT; OAuth-backed integrations (Slack OAuth bot mode, Google Workspace) target v1.x.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the build / test / PR loop.
 
 ## License
 
