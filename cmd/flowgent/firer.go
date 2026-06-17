@@ -32,9 +32,13 @@ type productionFirer struct {
 
 func (f *productionFirer) FireTrigger(ctx context.Context, triggerID, workflowID string, payload map[string]any) error {
 	defer func() {
-		// Best-effort: ignore errors. Touch uses its own context derivation
-		// because the caller may already have a cancelled ctx by now.
-		_ = f.triggers.TouchLastFired(ctx, triggerID)
+		// last_fired_at is bookkeeping that must survive the caller's
+		// context cancellation — a scheduler tick cleanup or a webhook
+		// client hang-up shouldn't drop the audit trail. Use a fresh
+		// background context with a tight deadline.
+		touchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = f.triggers.TouchLastFired(touchCtx, triggerID)
 	}()
 
 	trg, err := f.triggers.Get(ctx, triggerID)
@@ -81,6 +85,20 @@ func (f *productionFirer) FireTrigger(ctx context.Context, triggerID, workflowID
 		return fmt.Errorf("firer: insert run: %w", err)
 	}
 
+	// Mirror the engine's defensive defer: if we exit before the final
+	// UpdateRunStatus call (panic, ctx cancellation, etc.) the row stays
+	// in 'running' forever. The CAS guard in FailRunIfRunning ensures the
+	// fallback never overwrites a real terminal status.
+	settled := false
+	defer func() {
+		if settled {
+			return
+		}
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = f.runs.FailRunIfRunning(bgCtx, runID, "firer exited before final status", time.Now().UTC())
+	}()
+
 	state, runErr := f.engine.Run(ctx, &def, executor.RunOptions{
 		TriggerKind:    trg.Kind,
 		TriggerPayload: payload,
@@ -94,6 +112,7 @@ func (f *productionFirer) FireTrigger(ctx context.Context, triggerID, workflowID
 		errText = runErr.Error()
 	}
 	_ = f.runs.UpdateRunStatus(ctx, runID, runStatus, errText, &startedAt, &finishedAt)
+	settled = true
 	return runErr
 }
 

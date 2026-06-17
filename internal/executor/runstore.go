@@ -32,6 +32,12 @@ type RunStore interface {
 	// for cloning during a replay. Returned bytes are jsonb-shaped (may
 	// be 'null' or '{}').
 	GetTriggerPayload(ctx context.Context, runID string) (json.RawMessage, error)
+
+	// FailRun is the engine's last-chance write to keep a 'running' row
+	// from becoming orphaned when RunFromReplay exits early (panic,
+	// ctx cancellation, PersistRun failure). Implementations should be
+	// idempotent and tolerate the row already being in a terminal state.
+	FailRun(ctx context.Context, runID, errMsg string, finishedAt time.Time) error
 }
 
 // InsertRunParams is the run-row contract for RunStore.InsertRun. ParentRunID

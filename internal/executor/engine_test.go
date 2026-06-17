@@ -330,6 +330,11 @@ type fakeRunStore struct {
 		started time.Time
 		ended   time.Time
 	}
+	failed struct {
+		called bool
+		runID  string
+		errMsg string
+	}
 }
 
 func (f *fakeRunStore) LoadWorkflowForRun(_ context.Context, _ string) (int, *executor.Workflow, error) {
@@ -357,6 +362,13 @@ func (f *fakeRunStore) GetTriggerPayload(_ context.Context, runID string) (json.
 		return nil, errors.New("unknown parent")
 	}
 	return json.RawMessage(f.parentPay), nil
+}
+
+func (f *fakeRunStore) FailRun(_ context.Context, runID, errMsg string, _ time.Time) error {
+	f.failed.called = true
+	f.failed.runID = runID
+	f.failed.errMsg = errMsg
+	return nil
 }
 
 func TestEngine_RunFromReplay_linksParentAndClonesPayload(t *testing.T) {

@@ -236,6 +236,20 @@ func (e *Engine) RunFromReplay(ctx context.Context, workflowID, parentRunID stri
 		return "", fmt.Errorf("executor: replay insert run: %w", err)
 	}
 
+	// Once the row exists, every exit path from here must terminate it. If
+	// PersistRun never runs (panic, parent ctx already cancelled, etc.)
+	// the defer below stamps the row as failed via a fresh background
+	// context so the run viewer never shows a permanently-running ghost.
+	persisted := false
+	defer func() {
+		if persisted {
+			return
+		}
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = e.runStore.FailRun(bgCtx, runID, "engine exited before persisting run", time.Now().UTC())
+	}()
+
 	state, runErr := e.Run(ctx, wf, RunOptions{
 		TriggerKind:    "replay",
 		TriggerPayload: payload,
@@ -250,6 +264,7 @@ func (e *Engine) RunFromReplay(ctx context.Context, workflowID, parentRunID stri
 	if err := e.runStore.PersistRun(ctx, runID, wf, state, status, errMsg, startedAt, finishedAt); err != nil {
 		return runID, fmt.Errorf("executor: replay persist: %w", err)
 	}
+	persisted = true
 	return runID, nil
 }
 
