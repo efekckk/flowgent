@@ -1,4 +1,5 @@
 import type { WorkflowNode } from '../api/types';
+import Icon from '../ui/Icon';
 
 interface Props {
   node: WorkflowNode | null;
@@ -8,22 +9,30 @@ interface Props {
 export default function NodeInspector({ node, onClose }: Props) {
   if (!node) return null;
   return (
-    <div className="absolute right-4 top-4 z-10 w-80 rounded-md border border-slate-200 bg-white shadow-lg">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+    <div className="corners absolute right-4 top-4 z-10 w-80 animate-draft-in bg-ink-700/95 shadow-callout backdrop-blur-sm">
+      <span className="corner-bl" />
+      <span className="corner-br" />
+      <div className="flex items-center justify-between border-b border-ink-500 px-4 py-2.5">
         <div className="flex flex-col">
-          <span className="text-xs text-slate-500">Node</span>
-          <span className="truncate font-medium text-slate-800">{node.id}</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.32em] text-cyan">node · callout</span>
+          <span className="truncate font-mono text-sm text-paper-50">{node.id}</span>
         </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600" aria-label="Close">×</button>
+        <button
+          onClick={onClose}
+          className="rounded-sharp border border-ink-500 p-1 text-paper-400 transition hover:border-cyan/40 hover:text-cyan"
+          aria-label="Close"
+        >
+          <Icon name="x" size={12} />
+        </button>
       </div>
-      <div className="space-y-3 px-3 py-3 text-sm">
+      <div className="space-y-4 px-4 py-4">
         <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500">Tool</div>
-          <code className="block rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">{node.tool}</code>
+          <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">tool</div>
+          <code className="mt-1 block border border-ink-500 bg-ink-800 px-2 py-1 font-mono text-xs text-cyan">{node.tool}</code>
         </div>
         <div>
-          <div className="text-xs uppercase tracking-wide text-slate-500">Params</div>
-          <pre className="max-h-64 overflow-auto rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700">
+          <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">params</div>
+          <pre className="mt-1 max-h-64 overflow-auto border border-ink-500 bg-ink-800 p-2 font-mono text-[11px] leading-5 text-paper-200">
 {JSON.stringify(node.params, null, 2)}
           </pre>
         </div>

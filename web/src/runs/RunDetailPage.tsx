@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import ReactFlow, {
-  Background, Controls, MiniMap,
+  Background, BackgroundVariant, Controls, MiniMap,
   Handle, Position,
   type Node, type Edge, type NodeMouseHandler, type NodeProps,
 } from 'reactflow';
@@ -9,41 +9,24 @@ import 'reactflow/dist/style.css';
 import { useRunDetailStore } from './runDetailStore';
 import { useRunLogStream } from './useRunLogStream';
 import { useWorkflowsStore } from '../workflows/workflowsStore';
-import { useAuth } from '../auth/useAuth';
 import { workflowToFlow } from '../canvas/workflowToFlow';
 import type { NodeRun, RunLogEvent } from '../api/types';
-import LogSearchBar from '../search/LogSearchBar';
+import { SectionSidebar, StatusPill } from '../ui/SectionShell';
+import Icon from '../ui/Icon';
 
 type NodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | string;
 
-function statusPill(status: string): string {
+function nodeAccent(status: NodeStatus): { ring: string; border: string; label: string } {
   switch (status) {
     case 'succeeded':
-      return 'bg-emerald-100 text-emerald-700';
+      return { ring: 'shadow-[0_0_0_1px_rgba(134,239,172,0.55)]', border: 'border-moss/60', label: 'text-moss' };
     case 'failed':
-      return 'bg-red-100 text-red-700';
+      return { ring: 'shadow-[0_0_0_1px_rgba(251,113,133,0.6)]', border: 'border-rose/60', label: 'text-rose' };
     case 'running':
-      return 'bg-yellow-100 text-yellow-700';
-    case 'cancelled':
-      return 'bg-slate-100 text-slate-500';
-    default:
-      return 'bg-slate-100 text-slate-600';
-  }
-}
-
-// Fill + ring classes per node-run status. "pending" is the implicit default
-// for nodes that haven't been picked up by the executor yet.
-function nodeStatusClasses(status: NodeStatus): string {
-  switch (status) {
-    case 'succeeded':
-      return 'bg-emerald-500 ring-emerald-300';
-    case 'failed':
-      return 'bg-red-500 ring-red-300';
-    case 'running':
-      return 'bg-yellow-400 ring-yellow-200 animate-pulse';
+      return { ring: 'shadow-[0_0_0_1px_rgba(251,191,36,0.6)] animate-pulse', border: 'border-amber/60', label: 'text-amber' };
     case 'pending':
     default:
-      return 'bg-slate-300 ring-slate-200';
+      return { ring: 'shadow-[0_0_0_1px_rgba(125,211,252,0.18)]', border: 'border-ink-500', label: 'text-paper-400' };
   }
 }
 
@@ -54,20 +37,22 @@ interface StatusNodeData {
 }
 
 function StatusNode({ data }: NodeProps<StatusNodeData>) {
-  const tone = nodeStatusClasses(data.status);
+  const accent = nodeAccent(data.status);
   return (
     <div
       data-testid={`run-node-${data.id}`}
-      className={`rounded-md ring-4 shadow-sm ${tone}`}
-      style={{ width: 200 }}
+      className={`relative rounded-sharp border bg-ink-700/95 font-mono backdrop-blur-sm ${accent.border} ${accent.ring}`}
+      style={{ width: 208 }}
     >
-      <div className="flex items-center justify-between rounded-t-md bg-black/10 px-3 py-2">
-        <span className="truncate font-medium text-white">{data.tool}</span>
-        <span className="rounded-full bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+      <div className="flex items-center justify-between border-b border-ink-500/80 px-3 py-1.5">
+        <span className="truncate text-[10px] uppercase tracking-[0.28em] text-paper-200">{data.tool}</span>
+        <span className={`text-[10px] uppercase tracking-[0.24em] ${accent.label}`}>
           {data.status || 'pending'}
         </span>
       </div>
-      <div className="truncate px-3 py-2 text-xs text-white/90">id: {data.id}</div>
+      <div className="truncate px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-paper-600">
+        id · {data.id}
+      </div>
       <Handle type="target" position={Position.Top} id="main" />
       <Handle type="source" position={Position.Bottom} id="main" />
     </div>
@@ -82,24 +67,18 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString();
 }
 
-function levelClasses(level: string): string {
+function levelClass(level: string): string {
   switch (level) {
-    case 'error':
-      return 'text-red-600';
-    case 'warn':
-      return 'text-yellow-600';
-    case 'debug':
-      return 'text-slate-400';
-    default:
-      return 'text-slate-700';
+    case 'error': return 'text-rose';
+    case 'warn':  return 'text-amber';
+    case 'debug': return 'text-paper-600';
+    default:      return 'text-paper-200';
   }
 }
 
 function prettyJSON(v: unknown): string {
   if (v === undefined || v === null) return '';
   if (typeof v === 'string') {
-    // backend uses json.RawMessage so values arrive already-parsed for JSON
-    // objects, but a raw string may also slip through (e.g. error fields).
     try { return JSON.stringify(JSON.parse(v), null, 2); }
     catch { return v; }
   }
@@ -111,8 +90,6 @@ type RightTab = 'logs' | 'io';
 
 function LogsPanel({ logs }: { logs: RunLogEvent[] }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // Track whether the user has scrolled away from the bottom; if so we
-  // stop pinning so they can read the history without being yanked back.
   const stickRef = useRef(true);
 
   function onScroll() {
@@ -129,7 +106,12 @@ function LogsPanel({ logs }: { logs: RunLogEvent[] }) {
   }, [logs.length]);
 
   if (logs.length === 0) {
-    return <p className="p-4 text-sm text-slate-400">No log lines yet.</p>;
+    return (
+      <div className="p-6 font-mono text-xs uppercase tracking-[0.28em] text-paper-400">
+        No log lines yet.
+        <span className="caret" />
+      </div>
+    );
   }
 
   return (
@@ -137,14 +119,14 @@ function LogsPanel({ logs }: { logs: RunLogEvent[] }) {
       ref={scrollRef}
       onScroll={onScroll}
       data-testid="logs-panel"
-      className="h-full overflow-y-auto p-3 font-mono text-xs leading-5"
+      className="h-full overflow-y-auto bg-ink-800/40 p-3 font-mono text-[11px] leading-5"
     >
       {logs.map((l, i) => (
-        <div key={l.id ?? i} className="flex gap-2">
-          <span className="shrink-0 text-slate-400">{formatTime(l.at)}</span>
-          <span className={`shrink-0 w-12 uppercase ${levelClasses(l.level)}`}>{l.level}</span>
-          {l.node_id && <span className="shrink-0 text-indigo-500">{l.node_id}</span>}
-          <span className="break-all text-slate-700">{l.message}</span>
+        <div key={l.id ?? i} className="grid grid-cols-[80px_56px_minmax(80px,140px)_1fr] gap-2 border-b border-ink-700/40 py-0.5">
+          <span className="shrink-0 text-paper-600 tabular-nums">{formatTime(l.at)}</span>
+          <span className={`shrink-0 uppercase tracking-[0.18em] ${levelClass(l.level)}`}>{l.level}</span>
+          <span className="truncate text-cyan">{l.node_id || '—'}</span>
+          <span className="break-all text-paper-200">{l.message}</span>
         </div>
       ))}
     </div>
@@ -153,26 +135,34 @@ function LogsPanel({ logs }: { logs: RunLogEvent[] }) {
 
 function NodeIOPanel({ node }: { node: NodeRun | null }) {
   if (!node) {
-    return <p className="p-4 text-sm text-slate-400">Select a node to inspect its input and output.</p>;
+    return (
+      <div className="p-6 font-mono text-xs uppercase tracking-[0.28em] text-paper-400">
+        Select a node to inspect its input and output.
+      </div>
+    );
   }
   return (
-    <div className="h-full overflow-y-auto p-4 text-xs">
-      <h3 className="text-sm font-semibold text-slate-700">
-        {node.node_id} <span className={`ml-2 rounded-full px-2 py-0.5 ${statusPill(node.status)}`}>{node.status}</span>
-      </h3>
+    <div className="h-full overflow-y-auto p-5 text-xs">
+      <div className="flex items-center justify-between border-b border-ink-500 pb-3">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">node</div>
+          <div className="font-mono text-sm text-paper-50">{node.node_id}</div>
+        </div>
+        <StatusPill status={node.status} />
+      </div>
       {node.error !== undefined && node.error !== null && (
-        <section className="mt-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-red-600">Error</h4>
-          <pre className="mt-1 whitespace-pre-wrap rounded-md bg-red-50 p-2 text-red-700">{prettyJSON(node.error)}</pre>
+        <section className="mt-4">
+          <h4 className="font-mono text-[10px] uppercase tracking-[0.32em] text-rose">error</h4>
+          <pre className="mt-2 whitespace-pre-wrap border border-rose/30 bg-rose/5 p-3 font-mono text-[11px] text-rose/90">{prettyJSON(node.error)}</pre>
         </section>
       )}
-      <section className="mt-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Input</h4>
-        <pre className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-slate-800">{prettyJSON(node.input) || '—'}</pre>
+      <section className="mt-4">
+        <h4 className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">input</h4>
+        <pre className="mt-2 whitespace-pre-wrap border border-ink-500 bg-ink-800 p-3 font-mono text-[11px] text-paper-200">{prettyJSON(node.input) || '—'}</pre>
       </section>
-      <section className="mt-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Output</h4>
-        <pre className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-slate-800">{prettyJSON(node.output) || '—'}</pre>
+      <section className="mt-4">
+        <h4 className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">output</h4>
+        <pre className="mt-2 whitespace-pre-wrap border border-ink-500 bg-ink-800 p-3 font-mono text-[11px] text-paper-200">{prettyJSON(node.output) || '—'}</pre>
       </section>
     </div>
   );
@@ -181,7 +171,6 @@ function NodeIOPanel({ node }: { node: NodeRun | null }) {
 export default function RunDetailPage() {
   const { id: runId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { logout, workspace } = useAuth();
   const { run, nodes, logs, loading, error, fetch, replay } = useRunDetailStore();
   const { current: workflow, fetchOne } = useWorkflowsStore();
 
@@ -200,8 +189,6 @@ export default function RunDetailPage() {
 
   useRunLogStream(runId ?? null);
 
-  // Build a lookup from node_id → latest NodeRun (the executor may write
-  // multiple iterations for loops; prefer the most recent).
   const nodeRunByNodeId = useMemo(() => {
     const m = new Map<string, NodeRun>();
     for (const nr of nodes) {
@@ -214,9 +201,6 @@ export default function RunDetailPage() {
     return m;
   }, [nodes]);
 
-  // Compose ReactFlow nodes from the workflow definition, overlaying live
-  // status from node_runs. Memo keyed on both inputs so colours update as
-  // SSE events trigger refreshNodes.
   const { flowNodes, flowEdges } = useMemo(() => {
     const def = workflow?.definition;
     if (!def) return { flowNodes: [] as Node[], flowEdges: [] as Edge[] };
@@ -254,59 +238,58 @@ export default function RunDetailPage() {
     }
   }
 
-  return (
-    <div className="flex h-screen bg-slate-50">
-      <aside className="flex h-full w-56 flex-col border-r border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Run</h2>
-        <Link to="/workflows" className="mt-3 rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">← Workflows</Link>
-        {run?.workflow_id && (
-          <Link
-            to={`/workflows/${run.workflow_id}/runs`}
-            className="rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-          >
-            All runs
-          </Link>
-        )}
-        <div className="mt-auto space-y-2">
-          <LogSearchBar workspaceId={workspace?.id ?? null} />
-          <button onClick={logout} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
-            Sign out
-          </button>
-        </div>
-      </aside>
+  const workflowName = workflow?.id === run?.workflow_id ? workflow?.name : null;
 
-      <main className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold text-slate-800">Run</h1>
-            <span className="font-mono text-sm text-slate-500">{runId}</span>
-            {run && (
-              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusPill(run.status)}`}>
-                {run.status}
-              </span>
-            )}
+  return (
+    <div className="flex h-full bg-ink-900">
+      <SectionSidebar
+        workflowId={run?.workflow_id || null}
+        workflowName={workflowName || null}
+        active="runs"
+      />
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between border-b border-ink-500 bg-ink-700/80 px-6 py-3 backdrop-blur-sm">
+          <div className="flex items-center gap-4">
+            <div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.36em] text-cyan">run · ledger</div>
+              <div className="mt-0.5 flex items-center gap-3">
+                <span className="font-mono text-sm text-paper-200">{runId}</span>
+                {run && <StatusPill status={run.status} />}
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {replayError && <span className="text-xs text-red-600">{replayError}</span>}
+          <div className="flex items-center gap-3">
+            {replayError && <span className="font-mono text-[11px] text-rose">{replayError}</span>}
             <button
               type="button"
               onClick={onReplay}
               disabled={!runId || replaying}
-              className="rounded-md border border-indigo-300 bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="flex items-center gap-2 rounded-sharp border border-cyan/40 bg-cyan/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.24em] text-cyan transition hover:bg-cyan/20 disabled:opacity-50"
             >
+              {replaying ? <Icon name="spinner" size={12} className="animate-spin" /> : <Icon name="play" size={12} />}
               {replaying ? 'Replaying…' : 'Replay'}
             </button>
           </div>
         </header>
 
-        {error && <p className="bg-red-50 px-6 py-2 text-sm text-red-700">{error}</p>}
+        {error && (
+          <div className="border-b border-rose/30 bg-rose/10 px-6 py-2 font-mono text-xs text-rose">
+            {error}
+          </div>
+        )}
 
         <div className="flex min-h-0 flex-1">
-          <section className="flex-[3] border-r border-slate-200">
+          <section className="relative flex-[3] border-r border-ink-500 bg-ink-800">
             {loading && !workflow ? (
-              <p className="p-6 text-sm text-slate-400">Loading…</p>
+              <div className="flex h-full items-center justify-center gap-2 font-mono text-xs uppercase tracking-[0.28em] text-paper-400">
+                <Icon name="spinner" size={12} className="animate-spin text-cyan" />
+                loading…
+              </div>
             ) : flowNodes.length === 0 ? (
-              <p className="p-6 text-sm text-slate-400">No workflow definition available for this run.</p>
+              <p className="p-6 font-mono text-xs uppercase tracking-[0.28em] text-paper-400">
+                No workflow definition available for this run.
+              </p>
             ) : (
               <div className="h-full w-full">
                 <ReactFlow
@@ -322,31 +305,48 @@ export default function RunDetailPage() {
                   nodesConnectable={false}
                   edgesFocusable={false}
                   elementsSelectable
+                  proOptions={{ hideAttribution: true }}
+                  defaultEdgeOptions={{
+                    type: 'smoothstep',
+                    style: { stroke: 'rgba(125, 211, 252, 0.55)', strokeWidth: 1.25 },
+                  }}
                 >
-                  <Background />
-                  <Controls showInteractive={false} />
-                  <MiniMap pannable zoomable />
+                  <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(125, 211, 252, 0.18)" />
+                  <Controls showInteractive={false} position="bottom-right" />
+                  <MiniMap pannable zoomable
+                    nodeColor="#7DD3FC" nodeStrokeColor="#0EA5E9" nodeBorderRadius={0}
+                    maskColor="rgba(11, 18, 32, 0.6)"
+                  />
                 </ReactFlow>
+                <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%)' }} />
               </div>
             )}
           </section>
 
-          <section className="flex flex-[2] flex-col bg-white">
-            <div className="flex border-b border-slate-200">
+          <section className="flex flex-[2] flex-col bg-ink-700/50">
+            <div className="flex border-b border-ink-500 bg-ink-700">
               <button
                 type="button"
                 onClick={() => setTab('logs')}
-                className={`px-4 py-2 text-sm font-medium ${tab === 'logs' ? 'border-b-2 border-indigo-500 text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`flex items-center gap-2 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] transition ${
+                  tab === 'logs'
+                    ? 'border-b-2 border-cyan text-cyan'
+                    : 'border-b-2 border-transparent text-paper-400 hover:text-paper-200'
+                }`}
               >
-                Logs
+                <Icon name="scroll" size={12} /> Logs
               </button>
               <button
                 type="button"
                 onClick={() => selected && setTab('io')}
                 disabled={!selected}
-                className={`px-4 py-2 text-sm font-medium ${tab === 'io' ? 'border-b-2 border-indigo-500 text-indigo-700' : 'text-slate-500 hover:text-slate-700'} disabled:opacity-40 disabled:hover:text-slate-500`}
+                className={`flex items-center gap-2 px-5 py-2.5 font-mono text-[11px] uppercase tracking-[0.28em] transition ${
+                  tab === 'io'
+                    ? 'border-b-2 border-cyan text-cyan'
+                    : 'border-b-2 border-transparent text-paper-400 hover:text-paper-200'
+                } disabled:opacity-40 disabled:hover:text-paper-400`}
               >
-                Node IO
+                <Icon name="braces" size={12} /> Node IO
               </button>
             </div>
             <div className="min-h-0 flex-1">

@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useState } from 'react';
 import ReactFlow, {
-  Background, Controls, MiniMap,
+  Background, BackgroundVariant, Controls, MiniMap,
   type Node, type Edge, type NodeMouseHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -42,7 +42,7 @@ export default function Canvas({ definition, onSelectNode }: Props) {
   const onPaneClick = useCallback(() => onSelectNode?.(null), [onSelectNode]);
 
   return (
-    <div className="h-full w-full">
+    <div className="relative h-full w-full bg-ink-800">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -54,11 +54,38 @@ export default function Canvas({ definition, onSelectNode }: Props) {
         nodesConnectable={false}
         edgesFocusable={false}
         elementsSelectable
+        proOptions={{ hideAttribution: true }}
+        defaultEdgeOptions={{
+          type: 'smoothstep',
+          animated: false,
+          style: { stroke: 'rgba(125, 211, 252, 0.55)', strokeWidth: 1.25 },
+        }}
       >
-        <Background />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1}
+          color="rgba(125, 211, 252, 0.18)"
+        />
+        <Background
+          variant={BackgroundVariant.Lines}
+          gap={96}
+          lineWidth={0.5}
+          color="rgba(125, 211, 252, 0.08)"
+        />
+        <Controls showInteractive={false} position="bottom-right" />
+        <MiniMap pannable zoomable
+          nodeColor="#7DD3FC"
+          nodeStrokeColor="#0EA5E9"
+          nodeBorderRadius={0}
+          maskColor="rgba(11, 18, 32, 0.6)"
+        />
       </ReactFlow>
+      {/* Vignette overlay */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{ background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%)' }}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Canvas from '../canvas/Canvas';
 import ChatPanel from '../chat/ChatPanel';
 import NodeInspector from '../inspector/NodeInspector';
 import RunBar from '../runs/RunBar';
+import Icon from '../ui/Icon';
 import { useWorkflowsStore } from './workflowsStore';
 import { useChat } from '../chat/useChat';
 
@@ -29,43 +30,75 @@ export default function WorkflowsPage() {
   });
 
   return (
-    <div className="flex h-full bg-slate-50">
+    <div className="flex h-full bg-ink-900">
       <WorkflowList />
       <main className="flex flex-1 overflow-hidden">
         {!id && (
-          <div className="flex flex-1 items-center justify-center text-slate-400">
-            Select or create a workflow to begin.
+          <div className="drafting-table flex flex-1 flex-col items-center justify-center px-8 text-center">
+            <div className="font-mono text-[10px] uppercase tracking-[0.36em] text-paper-400">
+              no sheet open
+            </div>
+            <h2 className="h-display mt-3 text-3xl text-paper-50">The drafting table is clear.</h2>
+            <p className="mt-2 max-w-md font-mono text-xs text-paper-400">
+              Open a sheet from the left or draft a new workflow to begin.
+            </p>
           </div>
         )}
         {id && !current && (
-          <div className="flex flex-1 items-center justify-center text-slate-400">
-            Loading workflow…
+          <div className="drafting-table flex flex-1 items-center justify-center">
+            <div className="flex items-center gap-3 font-mono text-xs uppercase tracking-[0.32em] text-paper-400">
+              <Icon name="spinner" size={14} className="animate-spin text-cyan" />
+              opening sheet…
+            </div>
           </div>
         )}
         {id && current && (
           <>
-            <div className="relative flex flex-1 flex-col">
-              <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-                <div>
-                  <h1 className="text-lg font-semibold text-slate-800">{current.name}</h1>
-                  <p className="text-xs text-slate-500">Status: {current.status} · v{current.version}</p>
+            <div className="relative flex flex-1 flex-col bg-ink-800">
+              <header className="relative z-10 flex items-center justify-between border-b border-ink-500 bg-ink-700/95 px-6 py-3 backdrop-blur-sm">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <div className="font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">
+                      sheet · {current.id.slice(0, 12)}
+                    </div>
+                    <h1 className="h-display mt-0.5 text-xl text-paper-50">{current.name}</h1>
+                  </div>
+                  <div className="hidden h-10 w-px bg-ink-500 lg:block" />
+                  <div className="hidden flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.28em] text-paper-400 lg:flex">
+                    <span>rev · v{current.version}</span>
+                    <span>state · {current.status}</span>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2">
                   <Link
                     to={`/workflows/${current.id}/triggers`}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex items-center gap-2 rounded-sharp border border-ink-500 bg-ink-800 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.24em] text-paper-200 transition hover:border-cyan/40 hover:text-cyan"
                   >
-                    🔔 Triggers
+                    <Icon name="clock" size={12} />
+                    triggers
                   </Link>
                   <Link
                     to={`/workflows/${current.id}/runs`}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex items-center gap-2 rounded-sharp border border-ink-500 bg-ink-800 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.24em] text-paper-200 transition hover:border-cyan/40 hover:text-cyan"
                   >
-                    📜 Runs
+                    <Icon name="scroll" size={12} />
+                    runs
                   </Link>
                 </div>
               </header>
-              <div className="flex-1 overflow-hidden">
+
+              <div className="relative flex-1 overflow-hidden">
+                {/* Drafting marks in corners */}
+                <div className="pointer-events-none absolute left-3 top-3 z-10 font-mono text-[10px] uppercase tracking-[0.32em] text-paper-600">
+                  N ↑
+                </div>
+                <div className="pointer-events-none absolute right-3 top-3 z-10 font-mono text-[10px] uppercase tracking-[0.32em] text-paper-600">
+                  scale · auto
+                </div>
+                <div className="pointer-events-none absolute bottom-16 left-3 z-10 font-mono text-[10px] uppercase tracking-[0.32em] text-paper-600">
+                  origin · 0,0
+                </div>
                 {current.definition && (
                   <Canvas
                     definition={current.definition}
@@ -73,6 +106,7 @@ export default function WorkflowsPage() {
                   />
                 )}
               </div>
+
               <RunBar workflowId={current.id} />
               <NodeInspector node={selectedNode} onClose={() => setSelectedNodeId(null)} />
             </div>

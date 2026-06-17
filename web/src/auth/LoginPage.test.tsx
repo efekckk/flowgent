@@ -20,15 +20,15 @@ describe('LoginPage', () => {
   it('renders email and password fields', () => {
     renderWithAuth();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/passphrase/i)).toBeInTheDocument();
   });
 
   it('calls login() with submitted values', async () => {
     const login = vi.fn().mockResolvedValue(undefined);
     renderWithAuth(login);
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'a@example.com' } });
-    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'longerpw' } });
-    fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
+    fireEvent.change(screen.getByLabelText(/passphrase/i), { target: { value: 'longerpw' } });
+    fireEvent.click(screen.getByRole('button', { name: /open sheet/i }));
     await waitFor(() => expect(login).toHaveBeenCalledWith('a@example.com', 'longerpw'));
   });
 });

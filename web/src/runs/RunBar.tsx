@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import type { RunResponse } from '../api/types';
+import Icon from '../ui/Icon';
 
 interface Props {
   workflowId: string;
@@ -26,28 +27,35 @@ export default function RunBar({ workflowId }: Props) {
   }
 
   return (
-    <footer className="flex h-12 items-center justify-between border-t border-slate-200 bg-white px-4">
-      <div className="flex items-center gap-2 text-xs text-slate-500">
-        <span className="font-semibold uppercase tracking-wide">Run history:</span>
-        {recent.length === 0 && <span className="text-slate-400">(no runs yet)</span>}
-        {recent.map((r) => (
-          <span
-            key={r.run_id}
-            className={`inline-block h-2 w-2 rounded-full ${
-              r.status === 'succeeded' ? 'bg-emerald-500'
-              : r.status === 'failed' ? 'bg-red-500'
-              : 'bg-yellow-500'
-            }`}
-            title={`${r.status}${r.error ? ' — ' + r.error : ''}`}
-          />
-        ))}
+    <footer className="relative z-10 flex h-12 items-center justify-between border-t border-ink-500 bg-ink-700/95 px-5 backdrop-blur-sm">
+      <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.32em] text-paper-400">
+        <span className="text-cyan">last 10 runs</span>
+        {recent.length === 0 && (
+          <span className="text-paper-600">— no executions yet</span>
+        )}
+        {recent.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            {recent.map((r) => (
+              <span
+                key={r.run_id}
+                className={`inline-block h-2 w-2 rounded-sharp ${
+                  r.status === 'succeeded' ? 'bg-moss shadow-[0_0_0_1px_rgba(134,239,172,0.35)]'
+                  : r.status === 'failed' ? 'bg-rose shadow-[0_0_0_1px_rgba(251,113,133,0.35)]'
+                  : 'bg-amber shadow-[0_0_0_1px_rgba(251,191,36,0.35)]'
+                }`}
+                title={`${r.status}${r.error ? ' — ' + r.error : ''}`}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <button
         onClick={onRun}
         disabled={running}
-        className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+        className="flex items-center gap-2 rounded-sharp border border-cyan/40 bg-cyan/15 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.28em] text-cyan transition hover:bg-cyan/25 disabled:opacity-50"
       >
-        {running ? 'Running…' : '▶ Run now'}
+        {running ? <Icon name="spinner" size={12} className="animate-spin" /> : <Icon name="play" size={12} />}
+        {running ? 'firing…' : 'fire run'}
       </button>
     </footer>
   );
