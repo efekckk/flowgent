@@ -20,13 +20,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Compose interpolates ${VAR} from a sibling .env file automatically.
+    # Run `make env` once to generate it from .env.example with a fresh
+    # FLOWGENT_CRED_KEY. The `${...:?msg}` form below makes the missing-key
+    # case fail loudly instead of booting into a half-broken UI.
     environment:
-      DATABASE_URL: postgres://flowgent:flowgent@postgres:5432/flowgent?sslmode=disable
-      SESSION_COOKIE_DOMAIN: localhost
-      SESSION_COOKIE_SECURE: "false"
-      LOG_LEVEL: info
+      DATABASE_URL: ${DATABASE_URL:-postgres://flowgent:flowgent@postgres:5432/flowgent?sslmode=disable}
+      FLOWGENT_CRED_KEY: ${FLOWGENT_CRED_KEY:?FLOWGENT_CRED_KEY is required; run `openssl rand -base64 32` and put it in .env}
+      FLOWGENT_PUBLIC_BASE_URL: ${FLOWGENT_PUBLIC_BASE_URL:-http://localhost:8080}
+      FLOWGENT_OPENAI_KEY: ${FLOWGENT_OPENAI_KEY:-}
+      FLOWGENT_ANTHROPIC_KEY: ${FLOWGENT_ANTHROPIC_KEY:-}
+      FLOWGENT_DEFAULT_PROVIDER: ${FLOWGENT_DEFAULT_PROVIDER:-openai}
+      SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN:-localhost}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
 volumes:
   flowgent_pg:
